@@ -1,0 +1,101 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Atabeh
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We appreciate feature suggestions that help make Atabeh more useful. Take your time to explain the problem you're trying to solve and why this feature would help.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the issue or limitation you're experiencing
+      placeholder: |
+        I'm trying to accomplish X, but currently there's no way to...
+        When using Atabeh for Y, I run into the problem that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe your proposed solution
+      description: How do you think this should work?
+      placeholder: |
+        Atabeh could provide...
+        A new feature that allows...
+        An option to configure...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative solutions you've considered
+      description: Are there other ways to solve this problem?
+      placeholder: |
+        I've considered using X, but that doesn't work because...
+        Another approach might be Y, though it has these limitations...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component would this affect?
+      description: Where should this feature be implemented?
+      options:
+        - Core engine
+        - Parser system
+        - Testing/measurement
+        - API/interface
+        - Documentation
+        - Client applications
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How important is this to you?
+      description: Help us understand the impact
+      options:
+        - Critical - blocking my use of Atabeh
+        - High - would significantly improve my workflow
+        - Medium - would be nice to have
+        - Low - just a suggestion
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Usage examples
+      description: Show us how you'd use this feature in practice
+      placeholder: |
+        Example 1: When testing configs from source X...
+        Example 2: In regions where Y is blocked...
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant
+      placeholder: |
+        Similar features in other tools...
+        Related issues or discussions...
+        Technical constraints to consider...
+
+  - type: checkboxes
+    id: considerations
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I've searched existing issues and discussions to make sure this hasn't been suggested before
+          required: true
+        - label: I've considered whether this could be solved with existing features
+          required: true
+        - label: I understand this is a suggestion, not a guarantee of implementation
+          required: true

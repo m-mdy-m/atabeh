@@ -1,0 +1,89 @@
+name: Documentation Improvement
+description: Suggest improvements or report issues with documentation
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Good documentation makes Atabeh accessible to everyone. Whether you found something confusing, outdated, or missing entirely, we want to hear about it.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Which documentation needs improvement?
+      description: Where did you encounter the issue?
+      options:
+        - README
+        - Contributing guide
+        - API documentation
+        - Parser documentation
+        - Installation guide
+        - Usage examples
+        - Code comments
+        - Architecture documentation
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's the problem?
+      description: Describe what's unclear, incorrect, or missing
+      placeholder: |
+        The documentation says X, but actually Y happens...
+        There's no explanation of how to...
+        The example in section Z doesn't work...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: How could this be improved?
+      description: What changes would make this clearer?
+      placeholder: |
+        Add an example showing...
+        Clarify that...
+        Update the section to explain...
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Document location
+      description: Where exactly is this documentation? (file path, URL, section name)
+      placeholder: "e.g., docs/api.md line 45, README.md under 'Installation'"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How much does this affect understanding?
+      options:
+        - Critical - makes feature unusable
+        - High - causes significant confusion
+        - Medium - somewhat unclear
+        - Low - minor improvement
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other relevant information
+      placeholder: |
+        This confused me because...
+        Other projects handle this by...
+        Related documentation that needs updating...
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution interest
+      options:
+        - label: I'd be willing to submit a pull request to fix this
+        - label: I can help review proposed changes
+        - label: I just want to report the issue

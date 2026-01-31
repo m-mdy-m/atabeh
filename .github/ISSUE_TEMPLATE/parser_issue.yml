@@ -1,0 +1,117 @@
+name: Parser Issue
+description: Report a problem with configuration parsing
+title: "[Parser]: "
+labels: ["parser", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Parser issues can be tricky to debug. The more information you provide about the configuration format and expected behavior, the faster we can identify and fix the problem.
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Which protocol/format is affected?
+      description: Select the parser that's having issues
+      options:
+        - VMess
+        - VLess
+        - Trojan
+        - Reality
+        - Clash/Clash-Meta
+        - Subscription link
+        - Shadowsocks
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue-description
+    attributes:
+      label: What's going wrong?
+      description: Describe the parsing issue
+      placeholder: |
+        The parser fails to extract...
+        Configs are being parsed incorrectly...
+        Certain formats aren't recognized...
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample-config
+    attributes:
+      label: Sample configuration
+      description: Provide an example config that demonstrates the issue (remove any sensitive information like passwords, actual server IPs, etc.)
+      placeholder: |
+        vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6Inh4eHh4eCIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInR5cGUiOiJub25lIiwiaG9zdCI6IiIsInBhdGgiOiIvIiwidGxzIjoidGxzIn0=
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-output
+    attributes:
+      label: What should the parser extract?
+      description: Describe what you expect the parsed result to look like
+      placeholder: |
+        Server: example.com
+        Port: 443
+        Protocol: vmess
+        Transport: websocket
+        ...
+
+  - type: textarea
+    id: actual-output
+    attributes:
+      label: What actually happens?
+      description: Show the actual parser output or error
+      placeholder: |
+        Error: invalid encoding
+        Or: parser succeeds but extracts wrong values
+      render: shell
+
+  - type: input
+    id: source
+    attributes:
+      label: Configuration source
+      description: Where did this config come from? (URL if public, or just describe the source type)
+      placeholder: "e.g., GitHub subscription link, Telegram channel, manual entry"
+
+  - type: textarea
+    id: frequency
+    attributes:
+      label: How common is this issue?
+      description: Does this affect all configs from this source, or just some?
+      placeholder: |
+        Affects 3 out of 50 configs
+        Happens consistently with configs from source X
+        Only occurs with configs that have feature Y
+
+  - type: checkboxes
+    id: workaround
+    attributes:
+      label: Workaround status
+      options:
+        - label: I've found a workaround (described in additional context below)
+        - label: This is blocking my use of Atabeh
+        - label: This affects configs from multiple sources
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other relevant information
+      placeholder: |
+        This started happening when...
+        These configs work in client X but fail in Atabeh...
+        Possible cause might be...
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I've removed all sensitive information (passwords, real server IPs, etc.) from this report
+          required: true
+        - label: I've verified this issue occurs with non-sensitive test configs
+          required: false

@@ -1,0 +1,10 @@
+go.work
+.env
+.vscode/
+# Logs
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+api/proto/*.pb.go
