@@ -1,5 +1,7 @@
 # Atabeh
 
+**Status**: Core engine in development. Functional but incomplete. Clients coming soon.
+
 **Fuck censorship. Fuck unreliable VPNs. Fuck testing configs manually.**
 
 ## Why This Exists
@@ -73,11 +75,3 @@ This is just another route.
 ## Dedication
 
 To everyone in Iran fighting for basic freedoms. To everyone anywhere dealing with censorship and restricted internet. To everyone who's tired of authoritarian bullshit.
-
----
-
-**Status**: Core engine in development. Functional but incomplete. Clients coming soon.
-
-**Contributions**: Welcome. See CONTRIBUTING.md.
-
-**Contact**: Open an issue or discussion on GitHub.
