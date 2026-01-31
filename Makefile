@@ -16,6 +16,5 @@ docker-compose:
 deps:
 tidy:
 proto:
-	protoc --go_out=. --go-grpc_out=. api/proto/*.proto
 release:
 dev:
