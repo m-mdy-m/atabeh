@@ -11,15 +11,11 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/logger"
 )
 
-func init() {
-	Register(&vmessParser{})
-}
+func init() { Register(&vmessParser{}) }
 
 type vmessParser struct{}
 
-func (v *vmessParser) Protocol() common.Kind {
-	return common.VMess
-}
+func (v *vmessParser) Protocol() common.Kind { return common.VMess }
 
 type vmessJSON struct {
 	Name     string `json:"ps"`
@@ -36,41 +32,33 @@ type vmessJSON struct {
 	Host     string `json:"host"`
 }
 
-// ParseURI parses: vmess://BASE64PAYLOAD
+// ParseURI parses: vmess://BASE64(json)
 func (v *vmessParser) ParseURI(uri string) (*common.RawConfig, error) {
-	logger.Debugf("vmess", "parsing URI: %.80s...", uri)
+	logger.Debugf("vmess", "parsing: %.80s…", uri)
 
-	raw := strings.TrimPrefix(uri, "vmess://")
-	raw = strings.TrimSpace(raw)
+	raw := strings.TrimSpace(strings.TrimPrefix(uri, "vmess://"))
 
-	decoded, err := base64.StdEncoding.DecodeString(raw)
+	decoded, err := tryBase64(raw)
 	if err != nil {
-		decoded, err = base64.URLEncoding.DecodeString(raw)
-		if err != nil {
-			decoded, err = base64.RawStdEncoding.DecodeString(raw)
-			if err != nil {
-				return nil, fmt.Errorf("vmess base64 decode failed: %w", err)
-			}
-		}
+		return nil, fmt.Errorf("base64 decode: %w", err)
 	}
-
-	logger.Debugf("vmess", "decoded payload: %s", string(decoded))
 
 	var payload vmessJSON
 	if err := json.Unmarshal(decoded, &payload); err != nil {
-		return nil, fmt.Errorf("vmess JSON parse failed: %w", err)
+		return nil, fmt.Errorf("JSON unmarshal: %w", err)
 	}
 
 	if payload.Server == "" {
-		return nil, fmt.Errorf("missing server address in vmess config")
+		return nil, fmt.Errorf("missing server (add)")
 	}
 
-	port, err := parsePort(payload.Port)
+	port, err := flexPort(payload.Port)
 	if err != nil {
-		return nil, fmt.Errorf("invalid vmess port: %w", err)
+		return nil, fmt.Errorf("port: %w", err)
 	}
 
 	transport := detectTransport(payload.Network)
+
 	security := payload.TLS
 	if security == "" {
 		security = "none"
@@ -104,22 +92,35 @@ func (v *vmessParser) ParseURI(uri string) (*common.RawConfig, error) {
 		Extra:     extra,
 	}
 
-	logger.Debugf("vmess", "parsed -> name=%q server=%s port=%d transport=%s security=%s",
+	logger.Debugf("vmess", "→ name=%q server=%s:%d transport=%s security=%s",
 		cfg.Name, cfg.Server, cfg.Port, cfg.Transport, cfg.Security)
-
 	return cfg, nil
 }
 
-func parsePort(raw any) (int, error) {
+func tryBase64(s string) ([]byte, error) {
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+	return nil, fmt.Errorf("all base64 variants failed")
+}
+
+func flexPort(raw any) (int, error) {
 	switch v := raw.(type) {
 	case float64:
 		return int(v), nil
 	case string:
 		return strconv.Atoi(v)
 	case nil:
-		return 443, nil // default
+		return 443, nil
 	default:
-		return 0, fmt.Errorf("unexpected port type: %T", raw)
+		return 0, fmt.Errorf("unexpected type %T", raw)
 	}
 }
 
