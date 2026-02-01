@@ -1,11 +1,25 @@
-// https://github.com/XTLS/Xray-core/discussions/5171
-// https://github.com/DroidProger/XrayKeyParser
+//	vless://  — XTLS/Xray-core standard
+//	           https://github.com/XTLS/Xray-core/discussions/5171
+//
+//	vmess://  — V2Ray base64-JSON payload
+//	           https://github.com/2fly4info/V2RayNG/blob/master/README.md
+//
+//	ss://     — Shadowsocks SIP002 + legacy base64
+//	           https://shadowsocks.org/en/config/quick-guide.html
+//
+//	trojan:// — password-based, TLS by convention
+//	           https://trojan-gfw.github.io/trojan/protocol.html
+//
+//	socks://  — SOCKS4/5 with optional auth (socks://, socks4://, socks5://)
+//	           https://datatracker.ietf.org/doc/html/rfc1928
+//
+//	https://github.com/XTLS/Xray-core/discussions/5171
+//	https://github.com/DroidProger/XrayKeyParser
 package parsers
 
 import (
 	"encoding/base64"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
@@ -23,53 +37,41 @@ var registry = map[common.Kind]Parser{}
 
 func Register(p Parser) {
 	registry[p.Protocol()] = p
-	logger.Debugf(tag, "registered parser for protocol: %s", p.Protocol())
+	logger.Debugf(tag, "registered parser: %s", p.Protocol())
 }
 func GetParser(proto common.Kind) Parser {
 	return registry[proto]
 }
 
-var (
-	vlessPattern = regexp.MustCompile(`\bvless://[^\s\r\n]+`)
-	vmessPattern = regexp.MustCompile(`\bvmess://[^\s\r\n]+`)
-	ssPattern    = regexp.MustCompile(`\bss://[^\s\r\n]+`)
-)
-
-var allPatterns = []*regexp.Regexp{vlessPattern, vmessPattern, ssPattern}
-
-func cleanURI(uri string) string {
-	trimChars := ".,;:!?)}\"]'»›"
-	uri = strings.TrimRight(uri, trimChars)
-	return uri
-}
-
 func TryDecodeBase64Block(data string) ([]string, error) {
 	data = strings.TrimSpace(data)
-	decoded, err := base64.StdEncoding.DecodeString(data)
+
+	var decoded []byte
+	var err error
+	for _, enc := range [](*base64.Encoding){
+		base64.StdEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.RawURLEncoding,
+	} {
+		decoded, err = enc.DecodeString(data)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
-		decoded, err = base64.URLEncoding.DecodeString(data)
-		if err != nil {
-			decoded, err = base64.RawStdEncoding.DecodeString(data)
-			if err != nil {
-				decoded, err = base64.RawURLEncoding.DecodeString(data)
-				if err != nil {
-					return nil, fmt.Errorf("base64 decode failed: %w", err)
-				}
-			}
-		}
+		return nil, fmt.Errorf("base64 decode failed: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(decoded)), "\n")
 	var uris []string
-	for _, line := range lines {
+	for _, line := range strings.Split(string(decoded), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+		if line != "" {
+			uris = append(uris, line)
 		}
-		uris = append(uris, line)
 	}
 
-	logger.Infof(tag, "decoded base64 block -> %d line(s)", len(uris))
+	logger.Infof(tag, "decoded base64 block → %d line(s)", len(uris))
 	return uris, nil
 }
 
@@ -77,32 +79,33 @@ func ParseAll(uris []string) ([]*common.RawConfig, error) {
 	var configs []*common.RawConfig
 
 	for i, uri := range uris {
-		logger.Debugf(tag, "[%d] attempting to parse: %.80s...", i, uri)
+		logger.Debugf(tag, "[%d] parsing: %.80s…", i, uri)
 
 		proto := detectProtocol(uri)
 		if proto == "" {
-			logger.Warnf(tag, "[%d] unknown protocol, skipping: %.60s", i, uri)
+			logger.Warnf(tag, "[%d] unknown scheme, skipping: %.60s", i, uri)
 			continue
 		}
 
 		p := GetParser(proto)
 		if p == nil {
-			logger.Warnf(tag, "[%d] no parser registered for %s", i, proto)
+			logger.Warnf(tag, "[%d] no parser for %s", i, proto)
 			continue
 		}
 
 		cfg, err := p.ParseURI(uri)
 		if err != nil {
-			logger.Errorf(tag, "[%d] parse error (%s): %v", i, proto, err)
+			logger.Errorf(tag, "[%d] %s parse error: %v", i, proto, err)
 			continue
 		}
 
 		cfg.Source = "uri"
 		configs = append(configs, cfg)
-		logger.Infof(tag, "[%d] parsed OK: protocol=%s name=%q server=%s:%d", i, cfg.Protocol, cfg.Name, cfg.Server, cfg.Port)
+		logger.Infof(tag, "[%d] OK  proto=%s name=%q server=%s:%d",
+			i, cfg.Protocol, cfg.Name, cfg.Server, cfg.Port)
 	}
 
-	logger.Infof(tag, "parsed %d/%d configs successfully", len(configs), len(uris))
+	logger.Infof(tag, "parsed %d/%d configs", len(configs), len(uris))
 	return configs, nil
 }
 
@@ -114,6 +117,12 @@ func detectProtocol(uri string) common.Kind {
 		return common.VMess
 	case strings.HasPrefix(uri, "ss://"):
 		return common.Shadowsocks
+	case strings.HasPrefix(uri, "trojan://"):
+		return common.Trojan
+	case strings.HasPrefix(uri, "socks5://"),
+		strings.HasPrefix(uri, "socks4://"),
+		strings.HasPrefix(uri, "socks://"):
+		return common.Socks
 	default:
 		return ""
 	}
