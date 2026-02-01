@@ -34,8 +34,8 @@ type NormalizedConfig struct {
 	Port      int               `yaml:"port"`
 	UUID      string            `yaml:"uuid,omitempty"`
 	Password  string            `yaml:"password,omitempty"`
-	Method    Kind              `yaml:"method,omitempty"`
-	Transport string            `yaml:"transport"`
+	Method    string            `yaml:"method,omitempty"`
+	Transport Kind              `yaml:"transport"`
 	Security  string            `yaml:"security"`
 	Extra     map[string]string `yaml:"extra,omitempty"`
 }
