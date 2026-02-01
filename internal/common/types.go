@@ -6,47 +6,52 @@ const (
 	Vless       Kind = "vless"
 	VMess       Kind = "vmess"
 	Shadowsocks Kind = "ss"
-	TCP         Kind = "tcp"
-	UDP         Kind = "udp"
-	GRPC        Kind = "grpc"
-	WS          Kind = "ws"
-	H2          Kind = "h2"
+	Trojan      Kind = "trojan"
+	Socks       Kind = "socks"
+)
+
+const (
+	TCP  Kind = "tcp"
+	UDP  Kind = "udp"
+	GRPC Kind = "grpc"
+	WS   Kind = "ws"
+	H2   Kind = "h2"
 )
 
 type RawConfig struct {
-	Protocol  Kind              `yaml:"protocol"`
-	Name      string            `yaml:"name"`
-	Server    string            `yaml:"server"`
-	Port      int               `yaml:"port"`
-	UUID      string            `yaml:"uuid,omitempty"`
-	Password  string            `yaml:"password,omitempty"`
-	Method    string            `yaml:"method,omitempty"`
-	Transport Kind              `yaml:"transport,omitempty"`
-	Security  string            `yaml:"security,omitempty"`
-	Extra     map[string]string `yaml:"extra,omitempty"`
-	Source    string            `yaml:"-"`
+	Protocol  Kind              `json:"protocol"`
+	Name      string            `json:"name"`
+	Server    string            `json:"server"`
+	Port      int               `json:"port"`
+	UUID      string            `json:"uuid,omitempty"`
+	Password  string            `json:"password,omitempty"`
+	Method    string            `json:"method,omitempty"`
+	Transport Kind              `json:"transport,omitempty"`
+	Security  string            `json:"security,omitempty"`
+	Extra     map[string]string `json:"extra,omitempty"`
+	Source    string            `json:"-"`
 }
 
 type NormalizedConfig struct {
-	Name      string            `yaml:"name"`
-	Protocol  Kind              `yaml:"protocol"`
-	Server    string            `yaml:"server"`
-	Port      int               `yaml:"port"`
-	UUID      string            `yaml:"uuid,omitempty"`
-	Password  string            `yaml:"password,omitempty"`
-	Method    string            `yaml:"method,omitempty"`
-	Transport Kind              `yaml:"transport"`
-	Security  string            `yaml:"security"`
-	Extra     map[string]string `yaml:"extra,omitempty"`
+	Name      string            `json:"name"`
+	Protocol  Kind              `json:"protocol"`
+	Server    string            `json:"server"`
+	Port      int               `json:"port"`
+	UUID      string            `json:"uuid,omitempty"`
+	Password  string            `json:"password,omitempty"`
+	Method    string            `json:"method,omitempty"`
+	Transport Kind              `json:"transport"`
+	Security  string            `json:"security"`
+	Extra     map[string]string `json:"extra,omitempty"`
 }
 
 type PingResult struct {
-	Config      *NormalizedConfig `yaml:"config"`
-	Reachable   bool              `yaml:"reachable"`
-	Attempts    int               `yaml:"attempts"`
-	Successes   int               `yaml:"successes"`
-	LossPercent int               `yaml:"loss_percent"`
-	AvgMs       int64             `yaml:"avg_ms"`
-	MinMs       int64             `yaml:"min_ms"`
-	MaxMs       int64             `yaml:"max_ms"`
+	Config      *NormalizedConfig `json:"config"`
+	Reachable   bool              `json:"reachable"`
+	Attempts    int               `json:"attempts"`
+	Successes   int               `json:"successes"`
+	LossPercent int               `json:"loss_percent"`
+	AvgMs       int64             `json:"avg_ms"`
+	MinMs       int64             `json:"min_ms"`
+	MaxMs       int64             `json:"max_ms"`
 }
