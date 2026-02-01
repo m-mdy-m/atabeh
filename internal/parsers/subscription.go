@@ -14,34 +14,31 @@ import (
 const subTag = "subscription"
 
 func FetchSubscription(subscriptionURL string) ([]*common.RawConfig, error) {
-	logger.Infof(subTag, "fetching subscription: %s", subscriptionURL)
+	logger.Infof(subTag, "fetching: %s", subscriptionURL)
 
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
+	client := &http.Client{Timeout: 15 * time.Second}
 
 	resp, err := client.Get(subscriptionURL)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP GET failed: %w", err)
+		return nil, fmt.Errorf("HTTP GET: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("subscription returned HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("read body: %w", err)
 	}
-
-	logger.Debugf(subTag, "fetched %d bytes from subscription", len(body))
+	logger.Debugf(subTag, "fetched %d bytes", len(body))
 
 	content := strings.TrimSpace(string(body))
 
 	uris, err := TryDecodeBase64Block(content)
 	if err != nil {
-		logger.Debugf(subTag, "base64 decode failed, trying direct URI extraction")
+		logger.Debugf(subTag, "base64 decode failed, falling back to URI extraction")
 		uris = ExtractURIs(content)
 	}
 
@@ -49,8 +46,7 @@ func FetchSubscription(subscriptionURL string) ([]*common.RawConfig, error) {
 		logger.Warnf(subTag, "no configs found in subscription")
 		return nil, nil
 	}
-
-	logger.Infof(subTag, "found %d URI(s) in subscription", len(uris))
+	logger.Infof(subTag, "found %d URI(s)", len(uris))
 
 	configs, err := ParseAll(uris)
 	if err != nil {
@@ -59,6 +55,5 @@ func FetchSubscription(subscriptionURL string) ([]*common.RawConfig, error) {
 	for _, cfg := range configs {
 		cfg.Source = "subscription:" + subscriptionURL
 	}
-
 	return configs, nil
 }
