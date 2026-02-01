@@ -80,48 +80,36 @@ func Debug(tag, msg string) {
 	if !isEnabled(LevelDebug) {
 		return
 	}
-	color.New(color.FgCyan).Fprintf(os.Stderr, "[%s] [DEBUG] [%s] %s\n", timestamp(), tag, msg)
+	color.New(color.FgCyan).Fprintf(os.Stderr, "[%s] [DEBUG] [%-12s] %s\n", timestamp(), tag, msg)
 }
-func Debugf(tag, format string, args ...any) {
-	Debug(tag, fmt.Sprintf(format, args...))
-}
+func Debugf(tag, format string, args ...any) { Debug(tag, fmt.Sprintf(format, args...)) }
+
 func Info(tag, msg string) {
 	if !isEnabled(LevelInfo) {
 		return
 	}
-	color.New(color.FgWhite).Fprintf(os.Stdout, "[%s] [INFO ] [%s] %s\n", timestamp(), tag, msg)
+	color.New(color.FgWhite).Fprintf(os.Stdout, "[%s] [INFO ] [%-12s] %s\n", timestamp(), tag, msg)
 }
-func Infof(tag, format string, args ...any) {
-	Info(tag, fmt.Sprintf(format, args...))
-}
+func Infof(tag, format string, args ...any) { Info(tag, fmt.Sprintf(format, args...)) }
 
 func Warn(tag, msg string) {
 	if !isEnabled(LevelWarn) {
 		return
 	}
-	color.New(color.FgYellow).Fprintf(os.Stderr, "[%s] [WARN ] [%s] %s\n", timestamp(), tag, msg)
+	color.New(color.FgYellow).Fprintf(os.Stderr, "[%s] [WARN ] [%-12s] %s\n", timestamp(), tag, msg)
 }
-
-func Warnf(tag, format string, args ...any) {
-	Warn(tag, fmt.Sprintf(format, args...))
-}
+func Warnf(tag, format string, args ...any) { Warn(tag, fmt.Sprintf(format, args...)) }
 
 func Error(tag, msg string) {
 	if !isEnabled(LevelError) {
 		return
 	}
-	color.New(color.FgRed).Fprintf(os.Stderr, "[%s] [ERROR] [%s] %s\n", timestamp(), tag, msg)
+	color.New(color.FgRed).Fprintf(os.Stderr, "[%s] [ERROR] [%-12s] %s\n", timestamp(), tag, msg)
 }
-
-func Errorf(tag, format string, args ...any) {
-	Error(tag, fmt.Sprintf(format, args...))
-}
+func Errorf(tag, format string, args ...any) { Error(tag, fmt.Sprintf(format, args...)) }
 
 func Fatal(tag, msg string) {
-	color.New(color.FgRed, color.Bold).Fprintf(os.Stderr, "[%s] [FATAL] [%s] %s\n", timestamp(), tag, msg)
+	color.New(color.FgRed, color.Bold).Fprintf(os.Stderr, "[%s] [FATAL] [%-12s] %s\n", timestamp(), tag, msg)
 	os.Exit(1)
 }
-
-func Fatalf(tag, format string, args ...any) {
-	Fatal(tag, fmt.Sprintf(format, args...))
-}
+func Fatalf(tag, format string, args ...any) { Fatal(tag, fmt.Sprintf(format, args...)) }
