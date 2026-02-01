@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sort"
 	"time"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
@@ -17,17 +18,13 @@ type Config struct {
 	Timeout  time.Duration
 }
 
-// DefaultConfig returns sensible defaults
 func DefaultConfig() Config {
-	return Config{
-		Attempts: 3,
-		Timeout:  5 * time.Second,
-	}
+	return Config{Attempts: 3, Timeout: 5 * time.Second}
 }
 
 func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
 	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
-	logger.Infof(tag, "testing %q -> %s (%d attempts, timeout=%v)",
+	logger.Infof(tag, "testing %q → %s (%d attempts, timeout=%v)",
 		cfg.Name, addr, testCfg.Attempts, testCfg.Timeout)
 
 	result := &common.PingResult{
@@ -36,24 +33,23 @@ func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
 	}
 
 	var latencies []int64
-
 	for i := 0; i < testCfg.Attempts; i++ {
-		latency, err := pingOnce(addr, testCfg.Timeout)
+		lat, err := pingOnce(addr, testCfg.Timeout)
 		if err != nil {
-			logger.Debugf(tag, "  attempt %d/%d: FAILED (%v)", i+1, testCfg.Attempts, err)
+			logger.Debugf(tag, "  attempt %d/%d: FAIL (%v)", i+1, testCfg.Attempts, err)
 			continue
 		}
-		logger.Debugf(tag, "  attempt %d/%d: OK (%d ms)", i+1, testCfg.Attempts, latency)
-		latencies = append(latencies, latency)
+		logger.Debugf(tag, "  attempt %d/%d: OK   (%d ms)", i+1, testCfg.Attempts, lat)
+		latencies = append(latencies, lat)
 		result.Successes++
 	}
 
 	result.Reachable = result.Successes > 0
 
 	if len(latencies) > 0 {
+		var sum int64
 		result.MinMs = latencies[0]
 		result.MaxMs = latencies[0]
-		var sum int64
 		for _, l := range latencies {
 			sum += l
 			if l < result.MinMs {
@@ -70,50 +66,48 @@ func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
 		result.LossPercent = ((result.Attempts - result.Successes) * 100) / result.Attempts
 	}
 
-	// verbose report via logger
 	logger.PingReport(tag, cfg.Name, result.Attempts, result.Successes,
 		result.AvgMs, result.MinMs, result.MaxMs)
 
 	return result
 }
 
-// TestAll runs Test on each config and returns all results
 func TestAll(configs []*common.NormalizedConfig, testCfg Config) []*common.PingResult {
 	logger.Infof(tag, "testing %d config(s)", len(configs))
 
-	var results []*common.PingResult
+	results := make([]*common.PingResult, 0, len(configs))
 	for _, cfg := range configs {
-		r := Test(cfg, testCfg)
-		results = append(results, r)
+		results = append(results, Test(cfg, testCfg))
 	}
 
-	// summary
-	reachable := 0
-	for _, r := range results {
-		if r.Reachable {
-			reachable++
-		}
-	}
-	logger.Infof(tag, "test complete: %d/%d reachable", reachable, len(results))
-
+	// Print the final summary
+	logger.SummaryReport(results)
 	return results
 }
 
-// pingOnce attempts a single TCP connection and returns latency in ms.
-// Uses context with timeout so we don't hang forever.
+func RankResults(results []*common.PingResult) []*common.PingResult {
+	ranked := make([]*common.PingResult, len(results))
+	copy(ranked, results)
+
+	sort.SliceStable(ranked, func(i, j int) bool {
+		ri, rj := ranked[i], ranked[j]
+		if ri.Reachable != rj.Reachable {
+			return ri.Reachable
+		}
+		return ri.AvgMs < rj.AvgMs
+	})
+	return ranked
+}
+
 func pingOnce(addr string, timeout time.Duration) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	start := time.Now()
-
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return 0, err
 	}
 	conn.Close()
-
-	latency := time.Since(start).Milliseconds()
-	return latency, nil
+	return time.Since(start).Milliseconds(), nil
 }
