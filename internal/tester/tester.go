@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"sort"
+	"sync"
 	"time"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
@@ -14,42 +14,72 @@ import (
 const tag = "tester"
 
 type Config struct {
-	Attempts int
-	Timeout  time.Duration
+	Attempts        int
+	Timeout         time.Duration
+	ConcurrentTests int
+	TestDelay       time.Duration
 }
 
 func DefaultConfig() Config {
-	return Config{Attempts: 3, Timeout: 5 * time.Second}
+	return Config{
+		Attempts:        3,
+		Timeout:         5 * time.Second,
+		ConcurrentTests: 10,
+		TestDelay:       100 * time.Millisecond,
+	}
 }
 
-func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
+type Tester struct {
+	config  Config
+	limiter chan struct{}
+}
+
+func NewTester(config Config) *Tester {
+	return &Tester{
+		config:  config,
+		limiter: make(chan struct{}, config.ConcurrentTests),
+	}
+}
+
+func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
-	logger.Infof(tag, "testing %q → %s (%d attempts, timeout=%v)",
-		cfg.Name, addr, testCfg.Attempts, testCfg.Timeout)
+	logger.Infof(tag, "testing %q -> %s (%d attempts, timeout=%v)",
+		cfg.Name, addr, t.config.Attempts, t.config.Timeout)
 
 	result := &common.PingResult{
 		Config:   cfg,
-		Attempts: testCfg.Attempts,
+		Attempts: t.config.Attempts,
 	}
 
 	var latencies []int64
-	for i := 0; i < testCfg.Attempts; i++ {
-		lat, err := pingOnce(addr, testCfg.Timeout)
+	var successfulAttempts int
+
+	for i := 0; i < t.config.Attempts; i++ {
+		if i > 0 {
+			time.Sleep(t.config.TestDelay)
+		}
+
+		latency, err := t.pingOnce(addr)
 		if err != nil {
-			logger.Debugf(tag, "  attempt %d/%d: FAIL (%v)", i+1, testCfg.Attempts, err)
+			logger.Debugf(tag, "  [%s] attempt %d/%d: FAILED (%v)",
+				cfg.Name, i+1, t.config.Attempts, err)
 			continue
 		}
-		logger.Debugf(tag, "  attempt %d/%d: OK   (%d ms)", i+1, testCfg.Attempts, lat)
-		latencies = append(latencies, lat)
-		result.Successes++
+
+		logger.Debugf(tag, "  [%s] attempt %d/%d: OK (%d ms)",
+			cfg.Name, i+1, t.config.Attempts, latency)
+		latencies = append(latencies, latency)
+		successfulAttempts++
 	}
 
-	result.Reachable = result.Successes > 0
+	result.Successes = successfulAttempts
+	result.Reachable = successfulAttempts > 0
 
 	if len(latencies) > 0 {
-		var sum int64
 		result.MinMs = latencies[0]
 		result.MaxMs = latencies[0]
+		var sum int64
+
 		for _, l := range latencies {
 			sum += l
 			if l < result.MinMs {
@@ -59,6 +89,7 @@ func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
 				result.MaxMs = l
 			}
 		}
+
 		result.AvgMs = sum / int64(len(latencies))
 	}
 
@@ -72,42 +103,108 @@ func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
 	return result
 }
 
-func TestAll(configs []*common.NormalizedConfig, testCfg Config) []*common.PingResult {
-	logger.Infof(tag, "testing %d config(s)", len(configs))
+func (t *Tester) TestAll(configs []*common.NormalizedConfig) []*common.PingResult {
+	logger.Infof(tag, "testing %d config(s) with concurrency=%d",
+		len(configs), t.config.ConcurrentTests)
 
-	results := make([]*common.PingResult, 0, len(configs))
-	for _, cfg := range configs {
-		results = append(results, Test(cfg, testCfg))
+	results := make([]*common.PingResult, len(configs))
+	var wg sync.WaitGroup
+
+	for i, cfg := range configs {
+		wg.Add(1)
+
+		t.limiter <- struct{}{}
+
+		go func(index int, config *common.NormalizedConfig) {
+			defer wg.Done()
+			defer func() { <-t.limiter }()
+
+			results[index] = t.Test(config)
+		}(i, cfg)
 	}
 
-	// Print the final summary
-	logger.SummaryReport(results)
+	wg.Wait()
+
+	reachable := 0
+	totalLatency := int64(0)
+	latencyCount := 0
+
+	for _, r := range results {
+		if r.Reachable {
+			reachable++
+			if r.AvgMs > 0 {
+				totalLatency += r.AvgMs
+				latencyCount++
+			}
+		}
+	}
+
+	avgLatency := int64(0)
+	if latencyCount > 0 {
+		avgLatency = totalLatency / int64(latencyCount)
+	}
+
+	logger.Infof(tag, "test complete: %d/%d reachable (%.1f%%), avg latency: %d ms",
+		reachable, len(results),
+		float64(reachable)*100.0/float64(len(results)),
+		avgLatency)
+
 	return results
+}
+
+func (t *Tester) pingOnce(addr string) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.Timeout)
+	defer cancel()
+
+	start := time.Now()
+
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	conn.Close()
+
+	latency := time.Since(start).Milliseconds()
+	return latency, nil
 }
 
 func RankResults(results []*common.PingResult) []*common.PingResult {
 	ranked := make([]*common.PingResult, len(results))
 	copy(ranked, results)
 
-	sort.SliceStable(ranked, func(i, j int) bool {
-		ri, rj := ranked[i], ranked[j]
-		if ri.Reachable != rj.Reachable {
-			return ri.Reachable
+	for i := 0; i < len(ranked); i++ {
+		for j := i + 1; j < len(ranked); j++ {
+			if shouldSwap(ranked[i], ranked[j]) {
+				ranked[i], ranked[j] = ranked[j], ranked[i]
+			}
 		}
-		return ri.AvgMs < rj.AvgMs
-	})
+	}
+
 	return ranked
 }
 
-func pingOnce(addr string, timeout time.Duration) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	start := time.Now()
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return 0, err
+func shouldSwap(a, b *common.PingResult) bool {
+	if a.Reachable != b.Reachable {
+		return !a.Reachable
 	}
-	conn.Close()
-	return time.Since(start).Milliseconds(), nil
+	if !a.Reachable {
+		return false
+	}
+
+	if a.LossPercent != b.LossPercent {
+		return a.LossPercent > b.LossPercent
+	}
+
+	return a.AvgMs > b.AvgMs
+}
+
+func Test(cfg *common.NormalizedConfig, testCfg Config) *common.PingResult {
+	tester := NewTester(testCfg)
+	return tester.Test(cfg)
+}
+
+func TestAll(configs []*common.NormalizedConfig, testCfg Config) []*common.PingResult {
+	tester := NewTester(testCfg)
+	return tester.TestAll(configs)
 }
