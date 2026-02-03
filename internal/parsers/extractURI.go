@@ -12,17 +12,17 @@ import (
 const extractTag = "extract"
 
 var (
-	vlessPattern     = regexp.MustCompile(`vless://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
-	vmessPattern     = regexp.MustCompile(`vmess://[A-Za-z0-9+/=_\-]+`)
-	ssPattern        = regexp.MustCompile(`ss://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
-	trojanPattern    = regexp.MustCompile(`trojan://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
-	socksPattern     = regexp.MustCompile(`socks[45]?://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
+	vlessPattern     = regexp.MustCompile(`\bvless://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
+	vmessPattern     = regexp.MustCompile(`\bvmess://[A-Za-z0-9+/=_\-]+`)
+	ssPattern        = regexp.MustCompile(`\bss://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
+	trojanPattern    = regexp.MustCompile(`\btrojan://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
+	socksPattern     = regexp.MustCompile(`\bsocks[45]?://[A-Za-z0-9+/=_\-@:\.?&#%]+`)
 	protocolPatterns = map[common.Kind]*regexp.Regexp{
 		common.Vless:       vlessPattern,
 		common.VMess:       vmessPattern,
 		common.Shadowsocks: ssPattern,
-		"trojan":           trojanPattern,
-		"socks":            socksPattern,
+		common.Trojan:      trojanPattern,
+		common.Socks:       socksPattern,
 	}
 )
 
@@ -137,15 +137,10 @@ func containsBase64Chars(s string) bool {
 	return float64(base64Count)/float64(len(s)) > 0.5
 }
 
-func ExtractFromTelegramMessage(message string) []string {
-	logger.Debugf(extractTag, "extracting from Telegram message format")
-
-	// Telegram messages often have emojis and special formatting
-	// Remove common Telegram formatting
-	message = removeEmojis(message)
-
+func ExtractConfigs(text string) []string {
+	text = removeEmojis(text)
 	extractor := NewURIExtractor()
-	return extractor.Extract(message)
+	return extractor.Extract(text)
 }
 
 func removeEmojis(text string) string {

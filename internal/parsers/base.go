@@ -1,20 +1,25 @@
-//	vless://  — XTLS/Xray-core standard
-//	           https://github.com/XTLS/Xray-core/discussions/5171
-//
-//	vmess://  — V2Ray base64-JSON payload
-//	           https://github.com/2fly4info/V2RayNG/blob/master/README.md
-//
-//	ss://     — Shadowsocks SIP002 + legacy base64
-//	           https://shadowsocks.org/en/config/quick-guide.html
-//
-//	trojan:// — password-based, TLS by convention
-//	           https://trojan-gfw.github.io/trojan/protocol.html
-//
-//	socks://  — SOCKS4/5 with optional auth (socks://, socks4://, socks5://)
-//	           https://datatracker.ietf.org/doc/html/rfc1928
+// vless://  — XTLS/Xray-core standard
 //
 //	https://github.com/XTLS/Xray-core/discussions/5171
-//	https://github.com/DroidProger/XrayKeyParser
+//
+// vmess://  — V2Ray base64-JSON payload
+//
+//	https://github.com/2fly4info/V2RayNG/blob/master/README.md
+//
+// ss://     — Shadowsocks SIP002 + legacy base64
+//
+//	https://shadowsocks.org/en/config/quick-guide.html
+//
+// trojan:// — password-based, TLS by convention
+//
+//	https://trojan-gfw.github.io/trojan/protocol.html
+//
+// socks://  — SOCKS4/5 with optional auth (socks://, socks4://, socks5://)
+//
+//	https://datatracker.ietf.org/doc/html/rfc1928
+//
+// https://github.com/XTLS/Xray-core/discussions/5171
+// https://github.com/DroidProger/XrayKeyParser
 package parsers
 
 import (
@@ -74,38 +79,50 @@ func TryDecodeBase64Block(data string) ([]string, error) {
 	logger.Infof(tag, "decoded base64 block → %d line(s)", len(uris))
 	return uris, nil
 }
-
-func ParseAll(uris []string) ([]*common.RawConfig, error) {
+func ParseAll(texts []string) ([]*common.RawConfig, error) {
 	var configs []*common.RawConfig
 
-	for i, uri := range uris {
-		logger.Debugf(tag, "[%d] parsing: %.80s…", i, uri)
+	for idx, text := range texts {
+		logger.Debugf(tag, "[%d] parsing: %.80s…", idx, text)
 
-		proto := detectProtocol(uri)
-		if proto == "" {
-			logger.Warnf(tag, "[%d] unknown scheme, skipping: %.60s", i, uri)
+		uris := ExtractConfigs(text)
+		if len(uris) == 0 {
+			logger.Warnf(tag, "[%d] no URIs found, skipping", idx)
 			continue
 		}
 
-		p := GetParser(proto)
-		if p == nil {
-			logger.Warnf(tag, "[%d] no parser for %s", i, proto)
-			continue
-		}
+		logger.Infof(tag, "[%d] extracted %d URI(s)", idx, len(uris))
 
-		cfg, err := p.ParseURI(uri)
-		if err != nil {
-			logger.Errorf(tag, "[%d] %s parse error: %v", i, proto, err)
-			continue
-		}
+		for _, uri := range uris {
+			logger.Infof(tag, "[URI] %s", uri)
 
-		cfg.Source = "uri"
-		configs = append(configs, cfg)
-		logger.Infof(tag, "[%d] OK  proto=%s name=%q server=%s:%d",
-			i, cfg.Protocol, cfg.Name, cfg.Server, cfg.Port)
+			proto := detectProtocol(uri)
+			if proto == "" {
+				logger.Warnf(tag, "unknown scheme, skipping: %.60s", uri)
+				continue
+			}
+
+			parser := GetParser(proto)
+			logger.Infof("[TEST-man]", "[TEST]\"%+v\"", parser)
+			if parser == nil {
+				logger.Warnf(tag, "no parser for protocol %s, skipping", proto)
+				continue
+			}
+
+			cfg, err := parser.ParseURI(uri)
+			if err != nil {
+				logger.Errorf(tag, "%s parse error: %v", proto, err)
+				continue
+			}
+
+			cfg.Source = "uri"
+			configs = append(configs, cfg)
+			logger.Infof(tag, "OK  proto=%s name=%q server=%s:%d",
+				cfg.Protocol, cfg.Name, cfg.Server, cfg.Port)
+		}
 	}
 
-	logger.Infof(tag, "parsed %d/%d configs", len(configs), len(uris))
+	logger.Infof(tag, "parsed %d configs from %d texts", len(configs), len(texts))
 	return configs, nil
 }
 
