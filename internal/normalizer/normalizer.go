@@ -10,78 +10,72 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/logger"
 )
 
-const tag = "normalizer"
-
 var (
-	decorationPattern = regexp.MustCompile(`[«»‹›「」【】〔〕（）()[\]{}⟨⟩🔥⚡🌟✨💫🎯🎪🎭🎨🎬🎤🏆🥇🎖️🎁🎀🎊]+`)
+	decorationRe = regexp.MustCompile(`[«»‹›「」【】〔〕（）()[\]{}⟨⟩🔥⚡🌟✨💫🎯🎪🎭🎨🎬🎤🏆🥇🎖️🎁🎀🎊]+`)
+	domainRe     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+	uuidRe       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+	privateCIDRs []*net.IPNet
+
+	validTransports = map[common.Kind]bool{
+		common.TCP: true, common.UDP: true,
+		common.WS: true, common.H2: true, common.GRPC: true,
+	}
+
+	validSSMethods = map[string]bool{
+		"aes-128-gcm": true, "aes-256-gcm": true,
+		"chacha20-ietf-poly1305": true, "xchacha20-ietf-poly1305": true,
+		"2022-blake3-aes-128-gcm": true, "2022-blake3-aes-256-gcm": true,
+	}
 )
 
-type Normalizer struct {
-	strictValidation bool
-	allowPrivateIPs  bool
-	defaultName      string
-}
-
-func NewNormalizer() *Normalizer {
-	return &Normalizer{
-		strictValidation: true,
-		allowPrivateIPs:  false,
-		defaultName:      "atabeh-unknown",
+func init() {
+	for _, cidr := range []string{
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"127.0.0.0/8", "169.254.0.0/16",
+	} {
+		_, ipNet, _ := net.ParseCIDR(cidr)
+		privateCIDRs = append(privateCIDRs, ipNet)
 	}
 }
 
 func Normalize(raw []*common.RawConfig) ([]*common.NormalizedConfig, error) {
-	normalizer := NewNormalizer()
-	return normalizer.NormalizeAll(raw)
-}
-
-func (n *Normalizer) NormalizeAll(raw []*common.RawConfig) ([]*common.NormalizedConfig, error) {
-	logger.Infof(tag, "normalizing %d raw config(s)", len(raw))
-
-	seen := make(map[string]bool)
-	var results []*common.NormalizedConfig
-	var errors []error
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]*common.NormalizedConfig, 0, len(raw))
 
 	for i, r := range raw {
-		cfg, err := n.normalizeOne(r)
+		cfg, err := normalizeOne(r)
 		if err != nil {
-			logger.Warnf(tag, "[%d] skipping invalid config: %v", i, err)
-			errors = append(errors, fmt.Errorf("config %d: %w", i, err))
+			logger.Warn("normalizer", fmt.Sprintf("[%d] %v", i, err))
 			continue
 		}
 
-		key := n.dedupKey(cfg)
-		if seen[key] {
-			logger.Debugf(tag, "[%d] duplicate config, skipping: %s", i, cfg.Name)
+		key := dedupKey(cfg)
+		if _, dup := seen[key]; dup {
+			logger.Debug("normalizer", fmt.Sprintf("[%d] duplicate, skipping: %s", i, cfg.Name))
 			continue
 		}
-		seen[key] = true
-
-		results = append(results, cfg)
-		logger.Debugf(tag, "[%d] normalized OK: %s (%s:%d)",
-			i, cfg.Name, cfg.Server, cfg.Port)
+		seen[key] = struct{}{}
+		out = append(out, cfg)
 	}
 
-	logger.Infof(tag, "normalized %d -> %d unique config(s) (%d errors)",
-		len(raw), len(results), len(errors))
-
-	return results, nil
+	logger.Debug("normalizer", fmt.Sprintf("%d → %d unique", len(raw), len(out)))
+	return out, nil
 }
 
-func (n *Normalizer) normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
-
-	if err := n.validateRaw(r); err != nil {
+func normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
+	if err := validate(r); err != nil {
 		return nil, err
 	}
 
-	name := n.cleanName(r.Name)
+	name := cleanName(r.Name)
 	if name == "" {
-		name = n.generateDefaultName(r)
+		name = fmt.Sprintf("atabeh-unknown-%s-%s", r.Protocol, r.Server)
 	}
 
 	transport := r.Transport
 	if transport == "" {
-		transport = n.defaultTransport(r.Protocol)
+		transport = defaultTransport(r.Protocol)
 	}
 
 	security := r.Security
@@ -90,179 +84,100 @@ func (n *Normalizer) normalizeOne(r *common.RawConfig) (*common.NormalizedConfig
 	}
 
 	cfg := &common.NormalizedConfig{
-		Name:      name,
-		Protocol:  r.Protocol,
-		Server:    r.Server,
-		Port:      r.Port,
-		UUID:      r.UUID,
-		Password:  r.Password,
-		Method:    r.Method,
-		Transport: transport,
-		Security:  security,
-		Extra:     r.Extra,
+		Name: name, Protocol: r.Protocol,
+		Server: r.Server, Port: r.Port,
+		UUID: r.UUID, Password: r.Password, Method: r.Method,
+		Transport: transport, Security: security,
+		Extra: r.Extra,
 	}
 
-	if err := n.validateNormalized(cfg); err != nil {
-		return nil, err
+	if !validTransports[cfg.Transport] {
+		return nil, fmt.Errorf("invalid transport: %s", cfg.Transport)
 	}
-
 	return cfg, nil
 }
 
-func (n *Normalizer) validateRaw(r *common.RawConfig) error {
-
+func validate(r *common.RawConfig) error {
 	if r.Server == "" {
 		return fmt.Errorf("missing server address")
 	}
-
-	if !n.isValidServer(r.Server) {
+	if !isValidServer(r.Server) {
 		return fmt.Errorf("invalid server address: %s", r.Server)
 	}
-
 	if r.Port <= 0 || r.Port > 65535 {
-		return fmt.Errorf("invalid port: %d (must be 1-65535)", r.Port)
+		return fmt.Errorf("invalid port: %d", r.Port)
 	}
 
 	switch r.Protocol {
 	case common.Vless, common.VMess:
 		if r.UUID == "" {
-			return fmt.Errorf("missing UUID for %s protocol", r.Protocol)
+			return fmt.Errorf("missing UUID for %s", r.Protocol)
 		}
-		if !n.isValidUUID(r.UUID) {
-			return fmt.Errorf("invalid UUID format: %s", r.UUID)
+		if !uuidRe.MatchString(r.UUID) {
+			return fmt.Errorf("invalid UUID: %s", r.UUID)
+		}
+
+	case common.Trojan:
+		if r.Password == "" {
+			return fmt.Errorf("missing password for trojan")
 		}
 
 	case common.Shadowsocks:
 		if r.Password == "" {
-			return fmt.Errorf("missing password for Shadowsocks")
+			return fmt.Errorf("missing password for ss")
 		}
 		if r.Method == "" {
-			return fmt.Errorf("missing encryption method for Shadowsocks")
+			return fmt.Errorf("missing method for ss")
 		}
-		if !n.isValidSSMethod(r.Method) {
-			return fmt.Errorf("unsupported Shadowsocks method: %s", r.Method)
+		if !validSSMethods[strings.ToLower(r.Method)] {
+			return fmt.Errorf("unsupported ss method: %s", r.Method)
 		}
 
 	default:
 		return fmt.Errorf("unsupported protocol: %s", r.Protocol)
 	}
-
 	return nil
 }
 
-func (n *Normalizer) validateNormalized(cfg *common.NormalizedConfig) error {
-
-	validTransports := map[common.Kind]bool{
-		common.TCP:  true,
-		common.UDP:  true,
-		common.WS:   true,
-		common.H2:   true,
-		common.GRPC: true,
+func isValidServer(server string) bool {
+	if ip := net.ParseIP(server); ip != nil {
+		return !isPrivateIP(ip)
 	}
-
-	if !validTransports[cfg.Transport] {
-		return fmt.Errorf("invalid transport: %s", cfg.Transport)
-	}
-
-	return nil
-}
-
-func (n *Normalizer) isValidServer(server string) bool {
-
-	ip := net.ParseIP(server)
-	if ip != nil {
-
-		if !n.allowPrivateIPs && isPrivateIP(ip) {
-			return false
-		}
-		return true
-	}
-
-	if len(server) > 253 {
+	if len(server) > 253 || !strings.Contains(server, ".") {
 		return false
 	}
-
-	if !strings.Contains(server, ".") {
-		return false
-	}
-
-	domainPattern := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
-	return domainPattern.MatchString(server)
+	return domainRe.MatchString(server)
 }
 
 func isPrivateIP(ip net.IP) bool {
-	privateRanges := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16",
-	}
-
-	for _, cidr := range privateRanges {
-		_, ipNet, _ := net.ParseCIDR(cidr)
-		if ipNet.Contains(ip) {
+	for _, cidr := range privateCIDRs {
+		if cidr.Contains(ip) {
 			return true
 		}
 	}
-
 	return false
 }
 
-func (n *Normalizer) isValidUUID(uuid string) bool {
-	uuidPattern := regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	return uuidPattern.MatchString(uuid)
-}
-
-func (n *Normalizer) isValidSSMethod(method string) bool {
-	validMethods := map[string]bool{
-		"aes-128-gcm":             true,
-		"aes-256-gcm":             true,
-		"chacha20-ietf-poly1305":  true,
-		"xchacha20-ietf-poly1305": true,
-		"2022-blake3-aes-128-gcm": true,
-		"2022-blake3-aes-256-gcm": true,
-	}
-
-	return validMethods[strings.ToLower(method)]
-}
-
-func (n *Normalizer) cleanName(name string) string {
-
+func cleanName(name string) string {
 	name = strings.TrimSpace(name)
-
-	name = decorationPattern.ReplaceAllString(name, "")
-
-	name = strings.TrimSpace(name)
-
-	name = strings.Join(strings.Fields(name), " ")
-
-	return name
+	name = decorationRe.ReplaceAllString(name, "")
+	return strings.Join(strings.Fields(name), " ")
 }
 
-func (n *Normalizer) generateDefaultName(r *common.RawConfig) string {
-	return fmt.Sprintf("%s-%s-%s", n.defaultName, r.Protocol, r.Server)
-}
-
-func (n *Normalizer) defaultTransport(protocol common.Kind) common.Kind {
-	switch protocol {
-	case common.Shadowsocks:
+func defaultTransport(proto common.Kind) common.Kind {
+	if proto == common.Shadowsocks {
 		return common.UDP
-	default:
-		return common.TCP
 	}
+	return common.TCP
 }
 
-func (n *Normalizer) dedupKey(cfg *common.NormalizedConfig) string {
+func dedupKey(cfg *common.NormalizedConfig) string {
 	switch cfg.Protocol {
 	case common.Vless, common.VMess:
-		return fmt.Sprintf("%s|%s|%d|%s|%s",
-			cfg.Protocol, cfg.Server, cfg.Port, cfg.UUID, cfg.Transport)
+		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.UUID, cfg.Transport)
 	case common.Shadowsocks:
-		return fmt.Sprintf("%s|%s|%d|%s|%s",
-			cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Method)
+		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Method)
 	default:
-		return fmt.Sprintf("%s|%s|%d|%s",
-			cfg.Protocol, cfg.Server, cfg.Port, cfg.Transport)
+		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Transport)
 	}
 }
