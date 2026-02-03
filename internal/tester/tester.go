@@ -97,9 +97,6 @@ func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 		result.LossPercent = ((result.Attempts - result.Successes) * 100) / result.Attempts
 	}
 
-	logger.PingReport(tag, cfg.Name, result.Attempts, result.Successes,
-		result.AvgMs, result.MinMs, result.MaxMs)
-
 	return result
 }
 
@@ -112,13 +109,11 @@ func (t *Tester) TestAll(configs []*common.NormalizedConfig) []*common.PingResul
 
 	for i, cfg := range configs {
 		wg.Add(1)
-
 		t.limiter <- struct{}{}
 
 		go func(index int, config *common.NormalizedConfig) {
 			defer wg.Done()
 			defer func() { <-t.limiter }()
-
 			results[index] = t.Test(config)
 		}(i, cfg)
 	}
@@ -191,11 +186,9 @@ func shouldSwap(a, b *common.PingResult) bool {
 	if !a.Reachable {
 		return false
 	}
-
 	if a.LossPercent != b.LossPercent {
 		return a.LossPercent > b.LossPercent
 	}
-
 	return a.AvgMs > b.AvgMs
 }
 
