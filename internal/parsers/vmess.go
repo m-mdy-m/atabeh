@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -81,9 +82,13 @@ func (v *vmessParser) ParseURI(uri string) (*common.RawConfig, error) {
 		extra["encryption"] = payload.Security
 	}
 
+	name, err := url.QueryUnescape(payload.Name)
+	if err != nil {
+		name = payload.Name
+	}
 	cfg := &common.RawConfig{
 		Protocol:  common.VMess,
-		Name:      payload.Name,
+		Name:      name,
 		Server:    payload.Server,
 		Port:      port,
 		UUID:      payload.UUID,
