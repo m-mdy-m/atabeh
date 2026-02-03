@@ -11,16 +11,14 @@ import (
 
 func (c *CLI) ListCommand() *cobra.Command {
 	var (
-		listProtocol string
-		aliveOnly    bool
+		proto     string
+		aliveOnly bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all stored configs",
-		Long: `Displays every config in the database as a table.
-Use --protocol to filter by a specific protocol (vless, vmess, ss, trojan, socks).
-Use --alive to show only configs that passed their last connectivity test.
+		Long: `Shows every config in the database as a table.
 
 Examples:
   atabeh list
@@ -31,38 +29,24 @@ Examples:
 				configs []*common.StoredConfig
 				err     error
 			)
-
 			if aliveOnly {
 				configs, err = repo.ListAlive()
 			} else {
-				configs, err = repo.List(common.Kind(listProtocol))
+				configs, err = repo.List(common.Kind(proto))
 			}
 			if err != nil {
 				return err
 			}
-
 			if len(configs) == 0 {
-				fmt.Println("No configs stored. Use `atabeh add` or `atabeh sync`.")
+				fmt.Println("  No configs stored. Use `atabeh add` or `atabeh sync`.")
 				return nil
 			}
-
 			printTable(configs)
 			return nil
 		}),
 	}
 
-	cmd.Flags().StringVar(
-		&listProtocol,
-		"protocol",
-		"",
-		"filter by protocol (vless|vmess|ss|trojan|socks)",
-	)
-	cmd.Flags().BoolVar(
-		&aliveOnly,
-		"alive",
-		false,
-		"show only configs that are alive",
-	)
-
+	cmd.Flags().StringVar(&proto, "protocol", "", "filter by protocol (vless|vmess|ss|trojan)")
+	cmd.Flags().BoolVar(&aliveOnly, "alive", false, "show only configs that are alive")
 	return cmd
 }

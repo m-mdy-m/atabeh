@@ -20,8 +20,7 @@ func (c *CLI) TestCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Test connectivity of stored configs",
-		Long: `Runs TCP-level connectivity tests against one or all stored configs
-and persists the results.
+		Long: `Runs TCP connectivity tests against stored configs.
 
 Examples:
   atabeh test --all
@@ -34,7 +33,6 @@ Examples:
 				ConcurrentTests: 10,
 				TestDelay:       100 * time.Millisecond,
 			}
-
 			switch {
 			case testID > 0:
 				return runSingle(repo, cfg, testID)
@@ -49,6 +47,5 @@ Examples:
 	cmd.Flags().BoolVar(&testAll, "all", false, "test all stored configs")
 	cmd.Flags().IntVar(&testID, "id", 0, "test a single config by id")
 	cmd.Flags().IntVar(&testTimeout, "timeout", 5, "per-connection timeout in seconds")
-
 	return cmd
 }

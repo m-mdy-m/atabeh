@@ -7,7 +7,6 @@ const (
 	VMess       Kind = "vmess"
 	Shadowsocks Kind = "ss"
 	Trojan      Kind = "trojan"
-	Socks       Kind = "socks"
 )
 
 const (

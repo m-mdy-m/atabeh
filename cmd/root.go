@@ -23,10 +23,13 @@ tests every one for real connectivity, ranks them by latency, and stores
 the results in a local SQLite database.
 
 Examples:
-  atabeh add --url https://sub.example.com/configs
-  atabeh list
+  atabeh add "vless://uuid@vpn.example.com:443?security=tls#Server1"
+  atabeh sync https://sub.example.com/configs
+  atabeh sub add https://raw.githubusercontent.com/user/repo/main/sub
+  atabeh sub sync-all --test
   atabeh test --all
-  atabeh remove 3`,
+  atabeh rank
+  atabeh list --alive`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -34,20 +37,24 @@ Examples:
 
 func init() {
 	Root.PersistentFlags().StringVar(&DatabasePath, "db", defaultDBPath(), "path to SQLite database")
-	Root.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "enable debug-level logging")
+	Root.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "enable debug logging")
+
 	Root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if Verbose {
 			logger.SetLevel(logger.LevelDebug)
 		}
 		return nil
 	}
+
 	cli := command.NewCLI(&DatabasePath)
 	Root.AddCommand(
 		cli.AddCommand(),
+		cli.SyncCommand(),
 		cli.ListCommand(),
 		cli.TestCommand(),
 		cli.RemoveCommand(),
-		cli.SyncCommand(),
+		cli.RankCommand(),
+		cli.SubCommand(),
 		command.VersionCommand,
 	)
 }

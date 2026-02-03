@@ -11,36 +11,34 @@ import (
 
 func (c *CLI) RemoveCommand() *cobra.Command {
 	var (
-		removeSource string // --source
-		removeAll    bool   // --all
+		source    string
+		removeAll bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "remove [id]",
 		Short: "Remove config(s) from the database",
-		Long: `Removes one or more configs.
+		Long: `Remove one or more configs.
 
+Examples:
   atabeh remove 3
-  atabeh remove --source https://…
+  atabeh remove --source https://sub.example.com/configs
   atabeh remove --all`,
 		RunE: c.WrapRepo(func(repo *storage.ConfigRepo, cmd *cobra.Command, args []string) error {
 			switch {
-			// --all
 			case removeAll:
 				if err := repo.Clear(); err != nil {
 					return err
 				}
-				fmt.Println("All configs removed.")
+				fmt.Println("  all configs removed")
 
-			// --source <url>
-			case removeSource != "":
-				n, err := repo.DeleteBySource(removeSource)
+			case source != "":
+				n, err := repo.DeleteBySource(source)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Removed %d config(s) from source %q\n", n, removeSource)
+				fmt.Printf("  removed %d config(s) from %q\n", n, source)
 
-			// positional id
 			case len(args) == 1:
 				id, err := strconv.Atoi(args[0])
 				if err != nil {
@@ -49,7 +47,7 @@ func (c *CLI) RemoveCommand() *cobra.Command {
 				if err := repo.DeleteByID(id); err != nil {
 					return err
 				}
-				fmt.Printf("Removed config id=%d\n", id)
+				fmt.Printf("  removed id=%d\n", id)
 
 			default:
 				return fmt.Errorf("provide an id, --source, or --all")
@@ -58,8 +56,7 @@ func (c *CLI) RemoveCommand() *cobra.Command {
 		}),
 	}
 
-	cmd.Flags().StringVar(&removeSource, "source", "", "remove all configs from this subscription URL")
-	cmd.Flags().BoolVar(&removeAll, "all", false, "remove every config (destructive!)")
-
+	cmd.Flags().StringVar(&source, "source", "", "remove all configs from this subscription URL")
+	cmd.Flags().BoolVar(&removeAll, "all", false, "remove every config")
 	return cmd
 }
