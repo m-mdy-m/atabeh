@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
-	"github.com/m-mdy-m/atabeh/internal/logger"
 )
 
 func init() { Register(&vlessParser{}) }
@@ -15,10 +14,7 @@ type vlessParser struct{}
 
 func (v *vlessParser) Protocol() common.Kind { return common.Vless }
 
-// ParseURI parses: vless://UUID@host:port?type=…&security=…&…#name
 func (v *vlessParser) ParseURI(uri string) (*common.RawConfig, error) {
-	logger.Debugf("vless", "parsing: %.100s", uri)
-
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URI: %w", err)
@@ -60,34 +56,29 @@ func (v *vlessParser) ParseURI(uri string) (*common.RawConfig, error) {
 		security = "none"
 	}
 
-	extra := extractExtra(params, "type", "security")
-
-	cfg := &common.RawConfig{
+	return &common.RawConfig{
 		Protocol:  common.Vless,
-		Name:      u.Fragment,
+		Name:      decodeName(u.Fragment),
 		Server:    host,
 		Port:      port,
 		UUID:      uuid,
 		Transport: transport,
 		Security:  security,
-		Extra:     extra,
-	}
-
-	logger.Debugf("vless", "→ name=%q server=%s:%d security=%s transport=%s",
-		cfg.Name, cfg.Server, cfg.Port, cfg.Security, cfg.Transport)
-	return cfg, nil
+		Extra:     extractExtra(params, "type", "security"),
+	}, nil
 }
+
 func extractExtra(params url.Values, skip ...string) map[string]string {
 	skipSet := make(map[string]bool, len(skip))
 	for _, s := range skip {
 		skipSet[s] = true
 	}
 	extra := map[string]string{}
-	for key, vals := range params {
-		if skipSet[key] || len(vals) == 0 {
+	for k, vals := range params {
+		if skipSet[k] || len(vals) == 0 {
 			continue
 		}
-		extra[key] = vals[0]
+		extra[k] = vals[0]
 	}
 	return extra
 }

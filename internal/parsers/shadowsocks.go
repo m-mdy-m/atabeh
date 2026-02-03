@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
-	"github.com/m-mdy-m/atabeh/internal/logger"
 )
 
 func init() { Register(&ssParser{}) }
@@ -16,21 +15,21 @@ type ssParser struct{}
 
 func (s *ssParser) Protocol() common.Kind { return common.Shadowsocks }
 
-// ParseURI handles both SIP002 and legacy Shadowsocks URI formats.
-// SIP002:  ss://base64(method:password)@host:port#name
-// Legacy:  ss://base64(method:password@host:port)#name
+// ParseURI handles both formats:
+//
+//	SIP002:  ss://base64(method:password)@host:port#name
+//	Legacy:  ss://base64(method:password@host:port)#name
 func (s *ssParser) ParseURI(uri string) (*common.RawConfig, error) {
-	logger.Debugf("ss", "parsing: %.100s", uri)
-
 	cfg, err := s.parseSIP002(uri)
-	if err != nil {
-		logger.Debugf("ss", "SIP002 failed (%v), trying legacy", err)
-		cfg, err = s.parseLegacy(uri)
-		if err != nil {
-			return nil, fmt.Errorf("both SIP002 and legacy failed: %w", err)
-		}
+	if err == nil {
+		return cfg, nil
 	}
-	return cfg, nil
+	// SIP002 failed — try legacy
+	cfg2, err2 := s.parseLegacy(uri)
+	if err2 != nil {
+		return nil, fmt.Errorf("SIP002: %w; legacy: %w", err, err2)
+	}
+	return cfg2, nil
 }
 
 func (s *ssParser) parseSIP002(uri string) (*common.RawConfig, error) {
@@ -68,28 +67,25 @@ func (s *ssParser) parseSIP002(uri string) (*common.RawConfig, error) {
 		}
 	}
 
-	cfg := &common.RawConfig{
+	return &common.RawConfig{
 		Protocol:  common.Shadowsocks,
-		Name:      u.Fragment,
+		Name:      decodeName(u.Fragment),
 		Server:    host,
 		Port:      port,
 		Password:  password,
 		Method:    method,
 		Transport: common.UDP,
 		Security:  "none",
-	}
-
-	logger.Debugf("ss", "SIP002 → name=%q server=%s:%d method=%s",
-		cfg.Name, cfg.Server, cfg.Port, cfg.Method)
-	return cfg, nil
+	}, nil
 }
 
 func (s *ssParser) parseLegacy(uri string) (*common.RawConfig, error) {
 	raw := strings.TrimPrefix(uri, "ss://")
 
+	// fragment (name) is after '#'
 	name := ""
-	if idx := strings.Index(raw, "#"); idx != -1 {
-		name, _ = url.QueryUnescape(raw[idx+1:])
+	if idx := strings.IndexByte(raw, '#'); idx != -1 {
+		name = decodeName(raw[idx+1:])
 		raw = raw[:idx]
 	}
 
@@ -99,7 +95,7 @@ func (s *ssParser) parseLegacy(uri string) (*common.RawConfig, error) {
 	}
 	content := string(decoded)
 
-	// Split at the LAST '@' to separate method:password from host:port
+	// split at LAST '@' — password itself may contain '@'
 	atIdx := strings.LastIndex(content, "@")
 	if atIdx == -1 {
 		return nil, fmt.Errorf("missing @ in legacy content")
@@ -123,7 +119,7 @@ func (s *ssParser) parseLegacy(uri string) (*common.RawConfig, error) {
 		}
 	}
 
-	cfg := &common.RawConfig{
+	return &common.RawConfig{
 		Protocol:  common.Shadowsocks,
 		Name:      name,
 		Server:    host,
@@ -132,11 +128,7 @@ func (s *ssParser) parseLegacy(uri string) (*common.RawConfig, error) {
 		Method:    method,
 		Transport: common.UDP,
 		Security:  "none",
-	}
-
-	logger.Debugf("ss", "legacy → name=%q server=%s:%d method=%s",
-		cfg.Name, cfg.Server, cfg.Port, cfg.Method)
-	return cfg, nil
+	}, nil
 }
 
 func splitFirst(s, sep string) (string, string, error) {
@@ -149,8 +141,7 @@ func splitFirst(s, sep string) (string, string, error) {
 
 func splitHostPort(s string) (string, string, error) {
 	if strings.HasPrefix(s, "[") {
-		// IPv6 literal
-		close := strings.Index(s, "]")
+		close := strings.IndexByte(s, ']')
 		if close == -1 {
 			return "", "", fmt.Errorf("malformed IPv6 address")
 		}
@@ -161,7 +152,7 @@ func splitHostPort(s string) (string, string, error) {
 		}
 		return host, "", nil
 	}
-	idx := strings.LastIndex(s, ":")
+	idx := strings.LastIndexByte(s, ':')
 	if idx == -1 {
 		return s, "", nil
 	}

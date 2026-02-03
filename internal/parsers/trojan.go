@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
-	"github.com/m-mdy-m/atabeh/internal/logger"
 )
 
 func init() { Register(&trojanParser{}) }
@@ -15,10 +14,7 @@ type trojanParser struct{}
 
 func (t *trojanParser) Protocol() common.Kind { return common.Trojan }
 
-// ParseURI parses: trojan://password@host:port?type=…&security=…#name
 func (t *trojanParser) ParseURI(uri string) (*common.RawConfig, error) {
-	logger.Debugf("trojan", "parsing: %.100s", uri)
-
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URI: %w", err)
@@ -61,23 +57,17 @@ func (t *trojanParser) ParseURI(uri string) (*common.RawConfig, error) {
 
 	security := params.Get("security")
 	if security == "" {
-		security = "tls"
+		security = "tls" // trojan convention
 	}
 
-	extra := extractExtra(params, "type", "security")
-
-	cfg := &common.RawConfig{
+	return &common.RawConfig{
 		Protocol:  common.Trojan,
-		Name:      u.Fragment,
+		Name:      decodeName(u.Fragment),
 		Server:    host,
 		Port:      port,
 		Password:  password,
 		Transport: transport,
 		Security:  security,
-		Extra:     extra,
-	}
-
-	logger.Debugf("trojan", "→ name=%q server=%s:%d security=%s transport=%s",
-		cfg.Name, cfg.Server, cfg.Port, cfg.Security, cfg.Transport)
-	return cfg, nil
+		Extra:     extractExtra(params, "type", "security"),
+	}, nil
 }
