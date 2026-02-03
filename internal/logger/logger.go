@@ -21,22 +21,13 @@ const (
 )
 
 var (
-	currentLevel Level = LevelInfo
 	mu           sync.Mutex
+	currentLevel = LevelInfo
 	timeFormat   = "15:04:05"
 )
 
-func SetLevel(l Level) {
-	mu.Lock()
-	defer mu.Unlock()
-	currentLevel = l
-}
-
-func GetLevel() Level {
-	mu.Lock()
-	defer mu.Unlock()
-	return currentLevel
-}
+func SetLevel(l Level) { mu.Lock(); currentLevel = l; mu.Unlock() }
+func GetLevel() Level  { mu.Lock(); defer mu.Unlock(); return currentLevel }
 
 func ParseLevel(s string) Level {
 	switch strings.ToLower(s) {
@@ -72,57 +63,33 @@ func (l Level) String() string {
 	}
 }
 
-func isEnabled(l Level) bool {
-	mu.Lock()
-	defer mu.Unlock()
-	return l >= currentLevel
+var levelColors = map[Level]*color.Color{
+	LevelDebug: color.New(color.FgCyan),
+	LevelInfo:  color.New(color.FgWhite),
+	LevelWarn:  color.New(color.FgYellow),
+	LevelError: color.New(color.FgRed),
+	LevelFatal: color.New(color.FgRed, color.Bold),
 }
 
-func timestamp() string { return time.Now().Format(timeFormat) }
+func enabled(l Level) bool { mu.Lock(); defer mu.Unlock(); return l >= currentLevel }
 
-func emit(lvl Level, w *os.File, c *color.Color, tag, msg string) {
-	c.Fprintf(w, "[%s] [%s] [%-12s] %s\n", timestamp(), lvl, tag, msg)
-}
-
-func Debug(tag, msg string) {
-	if !isEnabled(LevelDebug) {
-		return
+func emit(lvl Level, tag, msg string) {
+	w := os.Stdout
+	if lvl >= LevelWarn {
+		w = os.Stderr
 	}
-	emit(LevelDebug, os.Stderr, color.New(color.FgCyan), tag, msg)
+	c := levelColors[lvl]
+	ts := time.Now().Format(timeFormat)
+	c.Fprintf(w, "%s  %-5s  %-12s  %s\n", ts, lvl, tag, msg)
 }
 
-func Debugf(tag, format string, a ...any) { Debug(tag, fmt.Sprintf(format, a...)) }
-
-func Info(tag, msg string) {
-	if !isEnabled(LevelInfo) {
-		return
-	}
-	emit(LevelInfo, os.Stdout, color.New(color.FgWhite), tag, msg)
-}
-
-func Infof(tag, format string, a ...any) { Info(tag, fmt.Sprintf(format, a...)) }
-
-func Warn(tag, msg string) {
-	if !isEnabled(LevelWarn) {
-		return
-	}
-	emit(LevelWarn, os.Stderr, color.New(color.FgYellow), tag, msg)
-}
-
-func Warnf(tag, format string, a ...any) { Warn(tag, fmt.Sprintf(format, a...)) }
-
-func Error(tag, msg string) {
-	if !isEnabled(LevelError) {
-		return
-	}
-	emit(LevelError, os.Stderr, color.New(color.FgRed), tag, msg)
-}
-
-func Errorf(tag, format string, a ...any) { Error(tag, fmt.Sprintf(format, a...)) }
-
-func Fatal(tag, msg string) {
-	emit(LevelFatal, os.Stderr, color.New(color.FgRed, color.Bold), tag, msg)
-	os.Exit(1)
-}
-
+func Debug(tag, msg string)               { if enabled(LevelDebug) { emit(LevelDebug, tag, msg) } }
+func Debugf(tag, format string, a ...any) { if enabled(LevelDebug) { emit(LevelDebug, tag, fmt.Sprintf(format, a...)) } }
+func Info(tag, msg string)                { if enabled(LevelInfo) { emit(LevelInfo, tag, msg) } }
+func Infof(tag, format string, a ...any)  { if enabled(LevelInfo) { emit(LevelInfo, tag, fmt.Sprintf(format, a...)) } }
+func Warn(tag, msg string)                { if enabled(LevelWarn) { emit(LevelWarn, tag, msg) } }
+func Warnf(tag, format string, a ...any)  { if enabled(LevelWarn) { emit(LevelWarn, tag, fmt.Sprintf(format, a...)) } }
+func Error(tag, msg string)               { if enabled(LevelError) { emit(LevelError, tag, msg) } }
+func Errorf(tag, format string, a ...any) { if enabled(LevelError) { emit(LevelError, tag, fmt.Sprintf(format, a...)) } }
+func Fatal(tag, msg string)               { emit(LevelFatal, tag, msg); os.Exit(1) }
 func Fatalf(tag, format string, a ...any) { Fatal(tag, fmt.Sprintf(format, a...)) }
