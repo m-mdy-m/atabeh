@@ -7,166 +7,240 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/parsers"
 )
 
-func TestVLESS_ParseExampleURI(t *testing.T) {
-	uri := "vless://829658bf-03c4-4c28-81e9-dd6ea141b2d0@" +
-		"188.114.98.0:443" +
-		"?type=ws" +
-		"&security=tls" +
+func MustGetParser(t *testing.T, kind common.Kind) parsers.Parser {
+	t.Helper()
+	p := parsers.GetParser(kind)
+	if p == nil {
+		t.Fatalf("parser for %q not registered", kind)
+	}
+	return p
+}
+func TestVLESS_BasicTLS(t *testing.T) {
+	uri := "vless://550e8400-e29b-41d4-a716-446655440000@vpn.example.com:443" +
+		"?type=tcp&security=tls&sni=vpn.example.com#BasicTLS"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	checks := map[string][2]string{
+		"protocol":  {string(cfg.Protocol), "vless"},
+		"name":      {cfg.Name, "BasicTLS"},
+		"server":    {cfg.Server, "vpn.example.com"},
+		"uuid":      {cfg.UUID, "550e8400-e29b-41d4-a716-446655440000"},
+		"transport": {string(cfg.Transport), "tcp"},
+		"security":  {cfg.Security, "tls"},
+		"sni":       {cfg.Extra["sni"], "vpn.example.com"},
+	}
+	for field, want := range checks {
+		if want[0] != want[1] {
+			t.Errorf("%s: got %q, want %q", field, want[0], want[1])
+		}
+	}
+	if cfg.Port != 443 {
+		t.Errorf("port: got %d, want 443", cfg.Port)
+	}
+}
+
+func TestVLESS_WebSocket_CDN(t *testing.T) {
+	// Common pattern: WS over TLS behind a CDN (Cloudflare-style)
+	uri := "vless://aaa-bbb-ccc@cdn.example.com:443" +
+		"?type=ws&security=tls&path=%2Fapi%2Fstream&sni=cdn.example.com&fp=chrome#WS-CDN"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != common.WS {
+		t.Errorf("transport: got %q, want ws", cfg.Transport)
+	}
+	if cfg.Extra["path"] != "/api/stream" {
+		t.Errorf("path: got %q, want /api/stream", cfg.Extra["path"])
+	}
+	if cfg.Extra["fp"] != "chrome" {
+		t.Errorf("fp: got %q, want chrome", cfg.Extra["fp"])
+	}
+}
+
+func TestVLESS_Reality(t *testing.T) {
+	// Reality configs are very common in Iran due to deep-packet-inspection bypass
+	uri := "vless://real-uuid@1.2.3.4:443" +
+		"?type=tcp&security=reality&pbkey=abcdef1234567890&sid=aabb&fp=chrome" +
+		"&spx=www.microsoft.com#Reality-Server"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Security != "reality" {
+		t.Errorf("security: got %q, want reality", cfg.Security)
+	}
+	if cfg.Extra["pbkey"] != "abcdef1234567890" {
+		t.Errorf("pbkey missing or wrong: %q", cfg.Extra["pbkey"])
+	}
+	if cfg.Extra["spx"] != "www.microsoft.com" {
+		t.Errorf("spx: got %q", cfg.Extra["spx"])
+	}
+}
+
+func TestVLESS_gRPC(t *testing.T) {
+	uri := "vless://grpc-uuid@grpc.example.com:443?type=grpc&security=tls&serviceName=myService#gRPC-Server"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != common.GRPC {
+		t.Errorf("transport: got %q, want grpc", cfg.Transport)
+	}
+	if cfg.Extra["serviceName"] != "myService" {
+		t.Errorf("serviceName: got %q", cfg.Extra["serviceName"])
+	}
+}
+
+func TestVLESS_H2(t *testing.T) {
+	uri := "vless://h2-uuid@h2.example.com:443?type=h2&security=tls#H2-Server"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != common.H2 {
+		t.Errorf("transport: got %q, want h2", cfg.Transport)
+	}
+}
+
+func TestVLESS_FullRealWorld(t *testing.T) {
+	// Exact-style URI pulled from a typical Iranian subscription
+	uri := "vless://829658bf-03c4-4c28-81e9-dd6ea141b2d0@188.114.98.0:443" +
+		"?type=ws&security=tls" +
 		"&path=%2F%3Fed%3D2560" +
 		"&alpn=http%2F1.1" +
 		"&encryption=none" +
 		"&insecure=0" +
 		"&allowInsecure=0" +
-		"&host=5jq7fvwpqt5owo2fi198sa6qoxznkzfea7en4m3xroeqrt3u3q.zjde5.de5.net" +
-		"&sni=5jq7fvwpqt5owo2fi198sa6qoxznkzfea7en4m3xroeqrt3u3q.zjde5.de5.net" +
+		"&host=long-cdn-subdomain.example.net" +
+		"&sni=long-cdn-subdomain.example.net" +
 		"&fp=chrome" +
 		"#jabeh_farsi"
 
-	p := parsers.GetParser(common.Vless)
-	if p == nil {
-		t.Fatal("no parser registered for vless")
-	}
-
-	cfg, err := p.ParseURI(uri)
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
 	if err != nil {
-		t.Fatalf("ParseURI error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if cfg.Name != "jabeh_farsi" {
-		t.Errorf("expected name=jabeh_farsi, got %q", cfg.Name)
+		t.Errorf("name: got %q", cfg.Name)
 	}
 	if cfg.Server != "188.114.98.0" {
-		t.Errorf("unexpected server: %s", cfg.Server)
-	}
-	if cfg.Port != 443 {
-		t.Errorf("unexpected port: %d", cfg.Port)
+		t.Errorf("server: got %q", cfg.Server)
 	}
 	if cfg.Transport != common.WS {
-		t.Errorf("expected transport=ws, got %s", cfg.Transport)
+		t.Errorf("transport: got %q", cfg.Transport)
 	}
-	if cfg.Security != "tls" {
-		t.Errorf("expected security=tls, got %s", cfg.Security)
-	}
-	if cfg.Extra["sni"] != "5jq7fvwpqt5owo2fi198sa6qoxznkzfea7en4m3xroeqrt3u3q.zjde5.de5.net" {
-		t.Errorf("unexpected sni in extra: %s", cfg.Extra["sni"])
-	}
-	if cfg.Extra["fp"] != "chrome" {
-		t.Errorf("unexpected fp in extra: %s", cfg.Extra["fp"])
-	}
-}
-func TestVLESS_ValidURI(t *testing.T) {
-	uri := "vless://550e8400-e29b-41d4-a716-446655440000@example.com:443?type=tcp&security=tls&sni=example.com#MyServer"
-
-	p := parsers.GetParser(common.Vless)
-	if p == nil {
-		t.Fatal("vless parser not registered")
-	}
-
-	cfg, err := p.ParseURI(uri)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if cfg.Protocol != common.Vless {
-		t.Errorf("expected protocol vless, got %s", cfg.Protocol)
-	}
-	if cfg.UUID != "550e8400-e29b-41d4-a716-446655440000" {
-		t.Errorf("unexpected UUID: %s", cfg.UUID)
-	}
-	if cfg.Server != "example.com" {
-		t.Errorf("unexpected server: %s", cfg.Server)
-	}
-	if cfg.Port != 443 {
-		t.Errorf("unexpected port: %d", cfg.Port)
-	}
-	if cfg.Name != "MyServer" {
-		t.Errorf("unexpected name: %s", cfg.Name)
-	}
-	if cfg.Transport != common.TCP {
-		t.Errorf("unexpected transport: %s", cfg.Transport)
-	}
-	if cfg.Security != "tls" {
-		t.Errorf("unexpected security: %s", cfg.Security)
-	}
-	if cfg.Extra["sni"] != "example.com" {
-		t.Errorf("unexpected sni in extra: %s", cfg.Extra["sni"])
+	if cfg.Extra["sni"] != "long-cdn-subdomain.example.net" {
+		t.Errorf("sni: got %q", cfg.Extra["sni"])
 	}
 }
 
-func TestVLESS_RealityConfig(t *testing.T) {
-	uri := "vless://uuid123@1.2.3.4:443?type=tcp&security=reality&pbkey=abc&sid=def&fp=chrome&spx=www.microsoft.com#Reality-Server"
-
-	p := parsers.GetParser(common.Vless)
-	cfg, err := p.ParseURI(uri)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if cfg.Security != "reality" {
-		t.Errorf("expected security=reality, got %s", cfg.Security)
-	}
-	if cfg.Extra["pbkey"] != "abc" {
-		t.Errorf("expected pbkey=abc in extra")
-	}
-	if cfg.Extra["sid"] != "def" {
-		t.Errorf("expected sid=def in extra")
-	}
-	if cfg.Extra["fp"] != "chrome" {
-		t.Errorf("expected fp=chrome in extra")
-	}
-	if cfg.Extra["spx"] != "www.microsoft.com" {
-		t.Errorf("expected spx in extra")
-	}
-}
+// ---------------------------------------------------------------------------
+// Default-value behaviour
+// ---------------------------------------------------------------------------
 
 func TestVLESS_DefaultPort(t *testing.T) {
-	// No port specified -> should default to 443
 	uri := "vless://my-uuid@server.example.com?security=tls#NoPort"
 
-	p := parsers.GetParser(common.Vless)
-	cfg, err := p.ParseURI(uri)
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if cfg.Port != 443 {
-		t.Errorf("expected default port 443, got %d", cfg.Port)
+		t.Errorf("port: got %d, want default 443", cfg.Port)
 	}
 }
+
+func TestVLESS_DefaultTransportAndSecurity(t *testing.T) {
+	// No type= or security= — should default to tcp / none
+	uri := "vless://uuid-here@server.example.com:8443#Defaults"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != common.TCP {
+		t.Errorf("transport: got %q, want tcp", cfg.Transport)
+	}
+	if cfg.Security != "none" {
+		t.Errorf("security: got %q, want none", cfg.Security)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Error cases — parser must reject these cleanly
+// ---------------------------------------------------------------------------
 
 func TestVLESS_MissingUUID(t *testing.T) {
 	uri := "vless://@example.com:443"
-
-	p := parsers.GetParser(common.Vless)
-	_, err := p.ParseURI(uri)
+	_, err := MustGetParser(t, common.Vless).ParseURI(uri)
 	if err == nil {
-		t.Fatal("expected error for missing UUID, got nil")
+		t.Fatal("expected error for missing UUID")
+	}
+}
+
+func TestVLESS_EmptyUUID(t *testing.T) {
+	uri := "vless://:443"
+	_, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err == nil {
+		t.Fatal("expected error for empty UUID")
 	}
 }
 
 func TestVLESS_MissingServer(t *testing.T) {
 	uri := "vless://some-uuid@:443"
-
-	p := parsers.GetParser(common.Vless)
-	_, err := p.ParseURI(uri)
+	_, err := MustGetParser(t, common.Vless).ParseURI(uri)
 	if err == nil {
-		t.Fatal("expected error for missing server, got nil")
+		t.Fatal("expected error for missing server")
 	}
 }
 
-func TestVLESS_WebSocketTransport(t *testing.T) {
-	uri := "vless://uuid@cdn.example.com:443?type=ws&security=tls&path=/secret&sni=cdn.example.com#WS-Server"
+func TestVLESS_WrongScheme(t *testing.T) {
+	uri := "vmess://550e8400-e29b-41d4-a716-446655440000@example.com:443"
+	_, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err == nil {
+		t.Fatal("expected error for wrong scheme")
+	}
+}
 
-	p := parsers.GetParser(common.Vless)
-	cfg, err := p.ParseURI(uri)
+func TestVLESS_NonNumericPort(t *testing.T) {
+	uri := "vless://uuid@example.com:abc?security=tls#Bad"
+	_, err := MustGetParser(t, common.Vless).ParseURI(uri)
+	if err == nil {
+		t.Fatal("expected error for non-numeric port")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Extra fields are preserved
+// ---------------------------------------------------------------------------
+
+func TestVLESS_ExtraFieldsPreserved(t *testing.T) {
+	uri := "vless://uuid@srv.com:443?type=tcp&security=tls&custom1=hello&custom2=world#Extras"
+
+	cfg, err := MustGetParser(t, common.Vless).ParseURI(uri)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if cfg.Transport != common.WS {
-		t.Errorf("expected transport ws, got %s", cfg.Transport)
+	// type & security are consumed — must NOT appear in Extra
+	if _, ok := cfg.Extra["type"]; ok {
+		t.Error("'type' should not be in Extra")
 	}
-	if cfg.Extra["path"] != "/secret" {
-		t.Errorf("expected path=/secret in extra")
+	if _, ok := cfg.Extra["security"]; ok {
+		t.Error("'security' should not be in Extra")
+	}
+	if cfg.Extra["custom1"] != "hello" {
+		t.Errorf("custom1: got %q", cfg.Extra["custom1"])
+	}
+	if cfg.Extra["custom2"] != "world" {
+		t.Errorf("custom2: got %q", cfg.Extra["custom2"])
 	}
 }
