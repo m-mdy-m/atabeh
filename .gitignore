@@ -6,5 +6,4 @@ go.work
 logs/
 *.db
 *.sqlite
-*.sqlite3
 api/proto/*.pb.go

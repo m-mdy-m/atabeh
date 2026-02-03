@@ -1,5 +1,9 @@
 # Atabeh
 
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-Passing-success)](tests/)
+
 **Status**: Core engine in development. Functional but incomplete. Clients coming soon.
 
 **Fuck censorship. Fuck unreliable VPNs. Fuck testing configs manually.**
