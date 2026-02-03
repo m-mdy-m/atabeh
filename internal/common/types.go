@@ -55,3 +55,22 @@ type PingResult struct {
 	MinMs       int64             `json:"min_ms"`
 	MaxMs       int64             `json:"max_ms"`
 }
+
+type StoredConfig struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Protocol  Kind   `json:"protocol"`
+	Server    string `json:"server"`
+	Port      int    `json:"port"`
+	UUID      string `json:"uuid"`
+	Password  string `json:"password"`
+	Method    string `json:"method"`
+	Transport Kind   `json:"transport"`
+	Security  string `json:"security"`
+	Extra     string `json:"extra"`  // JSON-serialised map
+	Source    string `json:"source"` // subscription URL or "manual"
+	LastPing  int64  `json:"last_ping_ms"`
+	IsAlive   bool   `json:"is_alive"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
