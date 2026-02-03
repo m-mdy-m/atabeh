@@ -32,6 +32,12 @@ func SetLevel(l Level) {
 	currentLevel = l
 }
 
+func GetLevel() Level {
+	mu.Lock()
+	defer mu.Unlock()
+	return currentLevel
+}
+
 func ParseLevel(s string) Level {
 	switch strings.ToLower(s) {
 	case "debug":
@@ -62,7 +68,7 @@ func (l Level) String() string {
 	case LevelFatal:
 		return "FATAL"
 	default:
-		return "UNKNOWN"
+		return "?????"
 	}
 }
 
@@ -72,44 +78,51 @@ func isEnabled(l Level) bool {
 	return l >= currentLevel
 }
 
-func timestamp() string {
-	return time.Now().Format(timeFormat)
+func timestamp() string { return time.Now().Format(timeFormat) }
+
+func emit(lvl Level, w *os.File, c *color.Color, tag, msg string) {
+	c.Fprintf(w, "[%s] [%s] [%-12s] %s\n", timestamp(), lvl, tag, msg)
 }
 
 func Debug(tag, msg string) {
 	if !isEnabled(LevelDebug) {
 		return
 	}
-	color.New(color.FgCyan).Fprintf(os.Stderr, "[%s] [DEBUG] [%-12s] %s\n", timestamp(), tag, msg)
+	emit(LevelDebug, os.Stderr, color.New(color.FgCyan), tag, msg)
 }
-func Debugf(tag, format string, args ...any) { Debug(tag, fmt.Sprintf(format, args...)) }
+
+func Debugf(tag, format string, a ...any) { Debug(tag, fmt.Sprintf(format, a...)) }
 
 func Info(tag, msg string) {
 	if !isEnabled(LevelInfo) {
 		return
 	}
-	color.New(color.FgWhite).Fprintf(os.Stdout, "[%s] [INFO ] [%-12s] %s\n", timestamp(), tag, msg)
+	emit(LevelInfo, os.Stdout, color.New(color.FgWhite), tag, msg)
 }
-func Infof(tag, format string, args ...any) { Info(tag, fmt.Sprintf(format, args...)) }
+
+func Infof(tag, format string, a ...any) { Info(tag, fmt.Sprintf(format, a...)) }
 
 func Warn(tag, msg string) {
 	if !isEnabled(LevelWarn) {
 		return
 	}
-	color.New(color.FgYellow).Fprintf(os.Stderr, "[%s] [WARN ] [%-12s] %s\n", timestamp(), tag, msg)
+	emit(LevelWarn, os.Stderr, color.New(color.FgYellow), tag, msg)
 }
-func Warnf(tag, format string, args ...any) { Warn(tag, fmt.Sprintf(format, args...)) }
+
+func Warnf(tag, format string, a ...any) { Warn(tag, fmt.Sprintf(format, a...)) }
 
 func Error(tag, msg string) {
 	if !isEnabled(LevelError) {
 		return
 	}
-	color.New(color.FgRed).Fprintf(os.Stderr, "[%s] [ERROR] [%-12s] %s\n", timestamp(), tag, msg)
+	emit(LevelError, os.Stderr, color.New(color.FgRed), tag, msg)
 }
-func Errorf(tag, format string, args ...any) { Error(tag, fmt.Sprintf(format, args...)) }
+
+func Errorf(tag, format string, a ...any) { Error(tag, fmt.Sprintf(format, a...)) }
 
 func Fatal(tag, msg string) {
-	color.New(color.FgRed, color.Bold).Fprintf(os.Stderr, "[%s] [FATAL] [%-12s] %s\n", timestamp(), tag, msg)
+	emit(LevelFatal, os.Stderr, color.New(color.FgRed, color.Bold), tag, msg)
 	os.Exit(1)
 }
-func Fatalf(tag, format string, args ...any) { Fatal(tag, fmt.Sprintf(format, args...)) }
+
+func Fatalf(tag, format string, a ...any) { Fatal(tag, fmt.Sprintf(format, a...)) }

@@ -19,87 +19,72 @@ func ConfigReport(tag string, cfg *common.NormalizedConfig) {
 	green := color.New(color.FgGreen, color.Bold)
 	greenDim := color.New(color.FgGreen)
 
-	green.Fprintf(os.Stdout, "[%s] [%-12s] ┌── Config: %s\n", timestamp(), tag, cfg.Name)
+	green.Fprintf(os.Stdout, "[%s] [%-12s] ┌─ Config ────────────────────────\n", timestamp(), tag)
 
 	fields := map[string]string{
-		"Protocol":  string(cfg.Protocol),
-		"Server":    fmt.Sprintf("%s:%d", cfg.Server, cfg.Port),
-		"Transport": string(cfg.Transport),
-		"Security":  cfg.Security,
+		"name":      cfg.Name,
+		"protocol":  string(cfg.Protocol),
+		"server":    fmt.Sprintf("%s:%d", cfg.Server, cfg.Port),
+		"transport": string(cfg.Transport),
+		"security":  cfg.Security,
 	}
 	if cfg.UUID != "" {
-		fields["UUID"] = cfg.UUID[:min(8, len(cfg.UUID))] + "…"
+		fields["uuid"] = truncate(cfg.UUID, 8) + "…"
 	}
 	if cfg.Password != "" {
-		fields["Password"] = strings.Repeat("•", min(len(cfg.Password), 8))
+		fields["password"] = strings.Repeat("•", min(len(cfg.Password), 8))
 	}
 	if cfg.Method != "" {
-		fields["Method"] = cfg.Method
+		fields["method"] = cfg.Method
 	}
 
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	maxLen := 0
-	for _, k := range keys {
-		if len(k) > maxLen {
-			maxLen = len(k)
-		}
-	}
+	keys := sortedKeys(fields)
+	maxLen := longestKey(keys)
 
 	for _, k := range keys {
 		greenDim.Fprintf(os.Stdout, "  │  %-*s : %s\n", maxLen, k, fields[k])
 	}
 
 	if len(cfg.Extra) > 0 {
-		extraKeys := make([]string, 0, len(cfg.Extra))
-		for k := range cfg.Extra {
-			extraKeys = append(extraKeys, k)
-		}
-		sort.Strings(extraKeys)
-		greenDim.Fprintf(os.Stdout, "  │  %-*s : ", maxLen, "Extra")
-		parts := make([]string, 0, len(extraKeys))
-		for _, k := range extraKeys {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, cfg.Extra[k]))
-		}
-		greenDim.Fprintf(os.Stdout, "%s\n", strings.Join(parts, ", "))
+		greenDim.Fprintf(os.Stdout, "  │  %-*s : %s\n", maxLen, "extra", formatKV(cfg.Extra))
 	}
 
-	green.Fprintf(os.Stdout, "  └─────────────────────────\n")
+	green.Fprintf(os.Stdout, "  └─────────────────────────────────\n")
 }
 
-func PingReport(tag string, configName string, attempts, successes int, avgMs, minMs, maxMs int64) {
+func PingReport(tag string, name string, attempts, successes int, avgMs, minMs, maxMs int64) {
 	if !isEnabled(LevelInfo) {
 		return
 	}
 
-	statusColor := color.New(color.FgGreen, color.Bold)
-	switch {
-	case successes == 0:
-		statusColor = color.New(color.FgRed, color.Bold)
-	case successes < attempts:
-		statusColor = color.New(color.FgYellow, color.Bold)
-	}
-
-	lossPercent := 0
+	loss := 0
 	if attempts > 0 {
-		lossPercent = ((attempts - successes) * 100) / attempts
+		loss = ((attempts - successes) * 100) / attempts
 	}
 
-	statusColor.Fprintf(os.Stdout, "[%s] [%-12s] ┌── Ping: %s\n", timestamp(), tag, configName)
-	statusColor.Fprintf(os.Stdout, "  │  Attempts : %d/%d  (loss: %d%%)\n", successes, attempts, lossPercent)
+	var statusStr string
+	var c *color.Color
+	switch {
+	case successes == attempts && successes > 0:
+		statusStr = "✓ REACHABLE"
+		c = color.New(color.FgGreen, color.Bold)
+	case successes == 0:
+		statusStr = "✗ UNREACHABLE"
+		c = color.New(color.FgRed, color.Bold)
+	default:
+		statusStr = "⚠ PARTIAL"
+		c = color.New(color.FgYellow, color.Bold)
+	}
+
+	c.Fprintf(os.Stdout, "[%s] [%-12s] ┌─ Ping ──────────────────────────\n", timestamp(), tag)
+	c.Fprintf(os.Stdout, "  │  target    : %s\n", name)
+	c.Fprintf(os.Stdout, "  │  status    : %s\n", statusStr)
+	c.Fprintf(os.Stdout, "  │  attempts  : %d/%d  (loss %d%%)\n", successes, attempts, loss)
 
 	if successes > 0 {
-		statusColor.Fprintf(os.Stdout, "  │  Avg      : %d ms\n", avgMs)
-		statusColor.Fprintf(os.Stdout, "  │  Min      : %d ms\n", minMs)
-		statusColor.Fprintf(os.Stdout, "  │  Max      : %d ms\n", maxMs)
-	} else {
-		statusColor.Fprintf(os.Stdout, "  │  Result   : UNREACHABLE\n")
+		c.Fprintf(os.Stdout, "  │  latency   : avg %d ms / min %d ms / max %d ms\n", avgMs, minMs, maxMs)
 	}
-	statusColor.Fprintf(os.Stdout, "  └─────────────────────────\n")
+	c.Fprintf(os.Stdout, "  └─────────────────────────────────\n")
 }
 
 func SummaryReport(results []*common.PingResult) {
@@ -107,7 +92,7 @@ func SummaryReport(results []*common.PingResult) {
 		return
 	}
 
-	line := strings.Repeat("═", 60)
+	line := strings.Repeat("═", 62)
 	white := color.New(color.FgWhite, color.Bold)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
@@ -122,16 +107,12 @@ func SummaryReport(results []*common.PingResult) {
 	bestMs = -1
 
 	for i, r := range results {
-		name := r.Config.Name
-		if len(name) > 20 {
-			name = name[:17] + "…"
-		}
+		name := truncate(r.Config.Name, 22)
 
 		if r.Reachable {
 			reachable++
-			green.Fprintf(os.Stdout, "   #%-2d  ✓  %-22s %4d ms   %-6s  %s:%d\n",
-				i+1, name, r.AvgMs, r.Config.Protocol,
-				r.Config.Server, r.Config.Port)
+			green.Fprintf(os.Stdout, "   #%-2d  ✓  %-24s %4d ms   %-6s  %s:%d\n",
+				i+1, name, r.AvgMs, r.Config.Protocol, r.Config.Server, r.Config.Port)
 			if bestMs == -1 || r.AvgMs < bestMs {
 				bestMs = r.AvgMs
 			}
@@ -139,9 +120,8 @@ func SummaryReport(results []*common.PingResult) {
 				worstMs = r.AvgMs
 			}
 		} else {
-			red.Fprintf(os.Stdout, "   #%-2d  ✗  %-22s   —       %-6s  %s:%d\n",
-				i+1, name, r.Config.Protocol,
-				r.Config.Server, r.Config.Port)
+			red.Fprintf(os.Stdout, "   #%-2d  ✗  %-24s  —       %-6s  %s:%d\n",
+				i+1, name, r.Config.Protocol, r.Config.Server, r.Config.Port)
 		}
 	}
 
@@ -158,9 +138,54 @@ func SummaryReport(results []*common.PingResult) {
 	white.Fprintf(os.Stdout, "  %s\n\n", line)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func StorageReport(tag, source string, fetched, inserted, totalInDB int) {
+	if !isEnabled(LevelInfo) {
+		return
 	}
-	return b
+	blue := color.New(color.FgCyan, color.Bold)
+	dim := color.New(color.FgCyan)
+
+	skipped := fetched - inserted
+	blue.Fprintf(os.Stdout, "[%s] [%-12s] ┌─ Sync ──────────────────────────\n", timestamp(), tag)
+	dim.Fprintf(os.Stdout, "  │  source     : %s\n", truncate(source, 52))
+	dim.Fprintf(os.Stdout, "  │  fetched    : %d\n", fetched)
+	dim.Fprintf(os.Stdout, "  │  inserted   : %d  (%d duplicate(s) skipped)\n", inserted, skipped)
+	dim.Fprintf(os.Stdout, "  │  total in db: %d\n", totalInDB)
+	blue.Fprintf(os.Stdout, "  └─────────────────────────────────\n")
+}
+
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n-1]) + "…"
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func longestKey(keys []string) int {
+	n := 0
+	for _, k := range keys {
+		if len(k) > n {
+			n = len(k)
+		}
+	}
+	return n
+}
+
+func formatKV(m map[string]string) string {
+	keys := sortedKeys(m)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, m[k]))
+	}
+	return strings.Join(parts, ", ")
 }
