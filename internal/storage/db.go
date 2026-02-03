@@ -15,15 +15,13 @@ func Open(path string) (*DB, error) {
 	}
 
 	conn, err := sql.Open("sqlite", abs+"?_journal_mode=WAL&_foreign_keys=on")
+	if err != nil {
+		return nil, fmt.Errorf("storage: open db: %w", err)
+	}
 	// https://stackoverflow.com/questions/31952791/setmaxopenconns-and-setmaxidleconns
 	conn.SetMaxOpenConns(1)
 	conn.SetMaxIdleConns(1)
 
-	if err != nil {
-		return nil, fmt.Errorf("storage: open db: %w", err)
-	}
-
-	// Sanity ping
 	if err := conn.Ping(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("storage: ping db: %w", err)
@@ -67,6 +65,10 @@ func (db *DB) migrate() error {
 
 		CREATE INDEX IF NOT EXISTS idx_configs_protocol ON configs (protocol);
 		CREATE INDEX IF NOT EXISTS idx_configs_alive    ON configs (is_alive);
+
+		CREATE TABLE IF NOT EXISTS subscriptions (
+			url TEXT PRIMARY KEY
+		);
 	`)
 	if err != nil {
 		return fmt.Errorf("storage: migrate: %w", err)
