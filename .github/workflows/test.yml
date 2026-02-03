@@ -2,21 +2,16 @@ name: Tests
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main]
+    tags:
+      - 'v*.*.*'
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  # ---------------------------------------------------------------
-  # Unit tests — matrix of OS × Go version
-  # ---------------------------------------------------------------
   test:
     name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
     runs-on: ${{ matrix.os }}
