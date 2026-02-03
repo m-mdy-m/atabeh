@@ -1,0 +1,104 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------
+  # Unit tests — matrix of OS × Go version
+  # ---------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        go-version:
+          - "1.25"
+          - "1.24"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (with race detector)
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-go${{ matrix.go-version }}
+          path: coverage.out
+          if-no-files-found: warn
+
+  coverage:
+    name: Coverage Report
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage
+
+      - name: Merge & report
+        run: |
+          # Pick the linux/stable profile as the canonical one
+          cp coverage/coverage-ubuntu-latest-go1.25/coverage.out coverage.out 2>/dev/null || \
+          cp $(find coverage -name coverage.out | head -1) coverage.out
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-merged
+          path: coverage.out
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
