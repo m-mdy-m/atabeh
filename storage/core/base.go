@@ -12,6 +12,6 @@ type Scanner interface {
 	Scan(dest ...any) error
 }
 
-func New(db *sql.DB, path string) Repo {
-	return Repo{DB: db, Path: path}
+func New(db *sql.DB) *Repo {
+	return &Repo{DB: db}
 }
