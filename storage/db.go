@@ -31,11 +31,10 @@ func Open(path string) (*RepoDatabase, error) {
 		return nil, fmt.Errorf("storage: ping db: %w", err)
 	}
 
+	coreRepo := core.NewWithPath(conn, abs)
+
 	db := &RepoDatabase{
-		Repo: &core.Repo{
-			DB:   conn,
-			Path: abs,
-		},
+		Repo: coreRepo,
 	}
 
 	if err := db.migrate(); err != nil {
@@ -46,8 +45,13 @@ func Open(path string) (*RepoDatabase, error) {
 	return db, nil
 }
 
-func (db *RepoDatabase) Close() error { return db.DB.Close() }
-func (db *RepoDatabase) Raw() *sql.DB { return db.DB }
+func (db *RepoDatabase) Close() error {
+	return db.Repo.Close()
+}
+
+func (db *RepoDatabase) Raw() *sql.DB {
+	return db.Repo.Raw()
+}
 
 func (db *RepoDatabase) migrate() error {
 	_, err := db.DB.Exec(`
