@@ -89,7 +89,18 @@ func Info(tag, msg string)                { if enabled(LevelInfo) { emit(LevelIn
 func Infof(tag, format string, a ...any)  { if enabled(LevelInfo) { emit(LevelInfo, tag, fmt.Sprintf(format, a...)) } }
 func Warn(tag, msg string)                { if enabled(LevelWarn) { emit(LevelWarn, tag, msg) } }
 func Warnf(tag, format string, a ...any)  { if enabled(LevelWarn) { emit(LevelWarn, tag, fmt.Sprintf(format, a...)) } }
-func Error(tag, msg string)               { if enabled(LevelError) { emit(LevelError, tag, msg) } }
-func Errorf(tag, format string, a ...any) { if enabled(LevelError) { emit(LevelError, tag, fmt.Sprintf(format, a...)) } }
+func Error(tag, msg string) error {
+	if enabled(LevelError) {
+		emit(LevelError, tag, msg)
+	}
+	return fmt.Errorf(msg)
+}
+func Errorf(tag, format string, a ...any) error {
+	safeFormat := strings.ReplaceAll(format, "%w", "%v")
+	if enabled(LevelError) {
+		emit(LevelError, tag, fmt.Sprintf(safeFormat, a...))
+	}
+	return fmt.Errorf(format, a...)
+}
 func Fatal(tag, msg string)               { emit(LevelFatal, tag, msg); os.Exit(1) }
 func Fatalf(tag, format string, a ...any) { Fatal(tag, fmt.Sprintf(format, a...)) }

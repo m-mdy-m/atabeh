@@ -3,6 +3,7 @@ package normalizer
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -68,7 +69,7 @@ func normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
 		return nil, err
 	}
 
-	name := cleanName(r.Name)
+	name := extractAndCleanName(r)
 	if name == "" {
 		name = fmt.Sprintf("atabeh-unknown-%s-%s", r.Protocol, r.Server)
 	}
@@ -95,6 +96,88 @@ func normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
 		return nil, fmt.Errorf("invalid transport: %s", cfg.Transport)
 	}
 	return cfg, nil
+}
+
+func extractAndCleanName(r *common.RawConfig) string {
+	name := strings.TrimSpace(r.Name)
+
+	if name == "" || strings.HasPrefix(name, "atabeh-unknown") {
+		name = extractNameFromSource(r.Source)
+	}
+
+	name = urlDecodePersian(name)
+
+	name = cleanName(name)
+
+	name = removeChannelPrefixes(name)
+
+	name = cleanLocationCodes(name)
+
+	return strings.TrimSpace(name)
+}
+
+func extractNameFromSource(source string) string {
+	if source == "" || source == "manual" {
+		return ""
+	}
+
+	if idx := strings.LastIndex(source, "#"); idx != -1 && idx < len(source)-1 {
+		name := source[idx+1:]
+		if name != "" {
+			return name
+		}
+	}
+
+	if strings.HasPrefix(source, "subscription:") {
+		subURL := strings.TrimPrefix(source, "subscription:")
+		if idx := strings.LastIndex(subURL, "/"); idx != -1 && idx < len(subURL)-1 {
+			name := subURL[idx+1:]
+			name = strings.TrimSuffix(name, ".txt")
+			name = strings.TrimSuffix(name, ".conf")
+			if name != "" {
+				return name
+			}
+		}
+	}
+
+	return ""
+}
+
+func urlDecodePersian(s string) string {
+	decoded, err := url.QueryUnescape(s)
+	if err != nil {
+		return s
+	}
+	return decoded
+}
+
+func removeChannelPrefixes(name string) string {
+	prefixes := []string{
+		"@", "کانال", "گروه", "چنل",
+	}
+
+	for _, prefix := range prefixes {
+		name = strings.TrimPrefix(name, prefix)
+		name = strings.TrimSpace(name)
+	}
+
+	return name
+}
+
+func cleanLocationCodes(name string) string {
+
+	patterns := []string{
+		`^[🇦-🇿]{2}\s*\d+\s*[-–—]\s*`,   // Flag emoji + number + dash
+		`^\d+\s*[-–—]\s*`,              // Number + dash at start
+		`^[A-Z]{2}[-–—]\d+\s*[-–—]\s*`, // Country code like US-01 -
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		name = re.ReplaceAllString(name, "")
+	}
+
+	return strings.TrimSpace(name)
 }
 
 func validate(r *common.RawConfig) error {
