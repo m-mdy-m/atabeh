@@ -2,53 +2,150 @@ package command
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/m-mdy-m/atabeh/internal/common"
+	"github.com/m-mdy-m/atabeh/internal/logger"
 	"github.com/m-mdy-m/atabeh/internal/normalizer"
 	"github.com/m-mdy-m/atabeh/internal/parsers"
-	"github.com/m-mdy-m/atabeh/internal/storage"
+	"github.com/m-mdy-m/atabeh/storage/repository"
 )
 
 func (c *CLI) AddCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "add <uri>",
-		Short: "Add a single VPN/proxy config URI",
-		Long: `Parses the given URI and stores it in the local database.
+	var (
+		testFirst bool
+		profile   string
+	)
 
-Supported schemes: vless://, vmess://, ss://, trojan://,
+	cmd := &cobra.Command{
+		Use:   "add <config_or_text>",
+		Short: "Add config(s) from URI or mixed text",
+		Long: `Parses config(s) from URI, text file, or mixed content and stores them.
+
+Supports:
+  - Single config URI
+  - Multiple config URIs (space or newline separated)
+  - Mixed content (configs + subscription URLs)
+  - Text files with configs
 
 Examples:
-  atabeh add "vless://uuid@vpn.example.com:443?security=tls#MyServer"
-  atabeh add "trojan://password@server.com:443#Iran1"`,
-		Args: cobra.ExactArgs(1),
-		RunE: c.WrapRepo(func(repo *storage.ConfigRepo, cmd *cobra.Command, args []string) error {
-			raw, err := parsers.ParseText(args[0])
+  atabeh add "vless://uuid@server:443?security=tls#MyServer"
+  atabeh add "vless://... vmess://..." --test-first
+  atabeh add @file_with_configs.txt --profile "My Configs"`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
+			input := args[0]
+
+			// Read from file if starts with @
+			if len(input) > 0 && input[0] == '@' {
+				content, err := os.ReadFile(input[1:])
+				if err != nil {
+					return fmt.Errorf("read file: %w", err)
+				}
+				input = string(content)
+			}
+
+			// Parse mixed content
+			mixed, err := parsers.ParseMixedContent(input)
 			if err != nil {
 				return fmt.Errorf("parse: %w", err)
 			}
-			if len(raw) == 0 {
-				return fmt.Errorf("could not parse the provided URI")
+
+			allRaw := make([]*common.RawConfig, 0)
+			allRaw = append(allRaw, mixed.DirectConfigs...)
+
+			// Fetch from nested subscriptions
+			for _, subURL := range mixed.Subscriptions {
+				logger.Infof("add", "fetching subscription: %s", subURL)
+				subConfigs, err := parsers.FetchAndParseAll(subURL)
+				if err != nil {
+					logger.Warnf("add", "fetch sub %s: %v", subURL, err)
+					continue
+				}
+				allRaw = append(allRaw, subConfigs...)
 			}
 
-			configs, err := normalizer.Normalize(raw)
+			if len(allRaw) == 0 {
+				return fmt.Errorf("no valid configs found")
+			}
+
+			logger.Infof("add", "found %d raw configs", len(allRaw))
+
+			// Normalize
+			configs, err := normalizer.Normalize(allRaw)
 			if err != nil {
 				return fmt.Errorf("normalize: %w", err)
 			}
+			logger.Infof("add", "normalized to %d configs", len(configs))
+
 			if len(configs) == 0 {
-				return fmt.Errorf("config failed validation")
+				return fmt.Errorf("all configs failed validation")
 			}
 
-			id, inserted, err := repo.InsertOrSkip(configs[0], "manual")
+			// Test first if requested
+			if testFirst {
+				logger.Infof("add", "testing configs...")
+				configs = testAndFilterConfigs(configs, 20)
+				if len(configs) == 0 {
+					return fmt.Errorf("no configs passed tests")
+				}
+				logger.Infof("add", "%d configs passed tests", len(configs))
+			}
+
+			// Determine profile name
+			profileName := profile
+			if profileName == "" {
+				if len(configs) == 1 {
+					profileName = configs[0].Name
+				} else {
+					profileName = configs[len(configs)-1].Name
+				}
+			}
+
+			// Create or get profile
+			source := "manual"
+			if len(mixed.Subscriptions) > 0 {
+				source = mixed.Subscriptions[0]
+			}
+
+			profileType := "manual"
+			if len(mixed.Subscriptions) > 0 && len(mixed.DirectConfigs) > 0 {
+				profileType = "mixed"
+			} else if len(mixed.Subscriptions) > 0 {
+				profileType = "subscription"
+			}
+
+			profileID, err := repo.GetOrCreateProfile(profileName, source, profileType)
 			if err != nil {
-				return err
+				return fmt.Errorf("create profile: %w", err)
 			}
-			if !inserted {
-				fmt.Printf("  already stored (id=%d)\n", id)
-				return nil
+
+			// Insert configs
+			inserted := 0
+			for _, cfg := range configs {
+				_, isNew, err := repo.InsertOrSkip(cfg, profileID)
+				if err != nil {
+					logger.Warnf("add", "insert %q: %v", cfg.Name, err)
+					continue
+				}
+				if isNew {
+					inserted++
+				}
 			}
-			fmt.Printf("  added  id=%d  name=%q  %s:%d\n", id, configs[0].Name, configs[0].Server, configs[0].Port)
+
+			total, _ := repo.CountByProfile(int(profileID))
+			fmt.Printf("\n  Profile: %s\n", profileName)
+			fmt.Printf("  Added:   %d new config(s)\n", inserted)
+			fmt.Printf("  Skipped: %d duplicate(s)\n", len(configs)-inserted)
+			fmt.Printf("  Total:   %d in profile\n\n", total)
+
 			return nil
 		}),
 	}
+
+	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test configs before saving")
+	cmd.Flags().StringVar(&profile, "profile", "", "profile name (default: last config name)")
+	return cmd
 }

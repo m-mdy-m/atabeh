@@ -8,7 +8,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/m-mdy-m/atabeh/internal/storage"
+	"github.com/m-mdy-m/atabeh/storage/repository"
 )
 
 func (c *CLI) RankCommand() *cobra.Command {
@@ -23,7 +23,7 @@ Run ` + "`atabeh test --all`" + ` first to populate test results.
 Examples:
   atabeh rank
   atabeh test --all && atabeh rank`,
-		RunE: c.WrapRepo(func(repo *storage.ConfigRepo, cmd *cobra.Command, args []string) error {
+		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			configs, err := repo.List("")
 			if err != nil {
 				return err

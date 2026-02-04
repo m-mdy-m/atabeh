@@ -7,8 +7,10 @@ import (
 
 	"github.com/m-mdy-m/atabeh/internal/common"
 	"github.com/m-mdy-m/atabeh/internal/logger"
-	"github.com/m-mdy-m/atabeh/internal/storage"
 	"github.com/m-mdy-m/atabeh/internal/tester"
+	"github.com/m-mdy-m/atabeh/storage"
+	"github.com/m-mdy-m/atabeh/storage/core"
+	"github.com/m-mdy-m/atabeh/storage/repository"
 )
 
 type CLI struct {
@@ -17,20 +19,22 @@ type CLI struct {
 
 func NewCLI(dbPath *string) *CLI { return &CLI{DBPath: dbPath} }
 
-// WrapRepo opens the DB, creates a repo, and passes it into the handler.
-// The DB is closed when the handler returns.
-func (c *CLI) WrapRepo(handler func(*storage.ConfigRepo, *cobra.Command, []string) error) func(*cobra.Command, []string) error {
+func (c *CLI) WrapRepo(handler func(*repository.Repo, *cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		db, err := storage.Open(*c.DBPath)
 		if err != nil {
 			return err
 		}
 		defer db.Close()
-		return handler(storage.NewConfigRepo(db), cmd, args)
+
+		coreRepo := core.New(db)
+		repo := repository.New(coreRepo)
+
+		return handler(repo, cmd, args)
 	}
 }
 
-func runSingle(repo *storage.ConfigRepo, cfg tester.Config, id int) error {
+func runSingle(repo *repository.Repo, cfg tester.Config, id int) error {
 	stored, err := repo.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("config id=%d: %w", id, err)
@@ -46,7 +50,7 @@ func runSingle(repo *storage.ConfigRepo, cfg tester.Config, id int) error {
 	return nil
 }
 
-func runAll(repo *storage.ConfigRepo, cfg tester.Config) error {
+func runAll(repo *repository.Repo, cfg tester.Config) error {
 	storeds, err := repo.List("")
 	if err != nil {
 		return err
@@ -73,7 +77,7 @@ func runAll(repo *storage.ConfigRepo, cfg tester.Config) error {
 	return nil
 }
 
-func toNormalized(s *common.StoredConfig) *common.NormalizedConfig {
+func toNormalized(s *storage.ConfigRow) *common.NormalizedConfig {
 	return &common.NormalizedConfig{
 		Name: s.Name, Protocol: s.Protocol,
 		Server: s.Server, Port: s.Port,

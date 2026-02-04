@@ -6,9 +6,10 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/m-mdy-m/atabeh/internal/common"
+	"github.com/m-mdy-m/atabeh/storage"
 )
 
-func printTable(configs []*common.StoredConfig) {
+func printTable(configs []*storage.ConfigRow) {
 	if len(configs) == 0 {
 		fmt.Println("  (empty)")
 		return
@@ -35,7 +36,7 @@ func printTable(configs []*common.StoredConfig) {
 	fmt.Printf("  %d config(s)\n", len(configs))
 }
 
-func printPingResult(cfg *common.StoredConfig, result *common.PingResult) {
+func printPingResult(cfg *storage.ConfigRow, result *common.PingResult) {
 	green := color.New(color.FgGreen).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()
 
@@ -49,7 +50,7 @@ func printPingResult(cfg *common.StoredConfig, result *common.PingResult) {
 	}
 }
 
-func printTestSummary(storeds []*common.StoredConfig, results []*common.PingResult) {
+func printTestSummary(storeds []*storage.ConfigRow, results []*common.PingResult) {
 	green := color.New(color.FgGreen).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()
 
