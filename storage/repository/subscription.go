@@ -1,20 +1,23 @@
 package repository
 
-import "github.com/m-mdy-m/atabeh/storage/core"
+import (
+	"github.com/m-mdy-m/atabeh/storage/core"
+)
 
 func (r *Repo) AddSubscription(url string) error {
 	q := core.InsertInto(core.TableSubscriptions).
-		Columns("url").
+		Columns(core.SubscriptionColURL).
 		Values(url).
 		OrIgnore()
 
 	_, err := r.core.InsertQuery(q)
 	return err
 }
+
 func (r *Repo) ListSubscriptions() ([]string, error) {
-	q := core.Select("url").
+	q := core.Select(core.SubscriptionColURL).
 		From(core.TableSubscriptions).
-		OrderBy("url")
+		OrderBy(core.SubscriptionColURL)
 
 	sqlStr, args := q.Build()
 	rows, err := r.core.DB.Query(sqlStr, args...)
@@ -23,24 +26,25 @@ func (r *Repo) ListSubscriptions() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var out []string
+	var urls []string
 	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
+		var url string
+		if err := rows.Scan(&url); err != nil {
 			return nil, err
 		}
-		out = append(out, u)
+		urls = append(urls, url)
 	}
-	return out, rows.Err()
+	return urls, rows.Err()
 }
 
 func (r *Repo) RemoveSubscription(url string) error {
 	q := core.DeleteFrom(core.TableSubscriptions).
-		Where("url = ?", url)
+		Where(core.SubscriptionColURL+" = ?", url)
 
 	_, err := r.core.ExecQuery(q)
 	return err
 }
+
 func (r *Repo) ClearSubscriptions() error {
 	q := core.DeleteFrom(core.TableSubscriptions)
 	_, err := r.core.ExecQuery(q)

@@ -20,7 +20,7 @@ func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 		&extraRaw, &c.Source, &lastPing, &isAlive, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
-		return nil, logger.Errorf("DATABASE", "scan configs: %w", err)
+		return nil, logger.Errorf("scanner", "scan config: %w", err)
 	}
 
 	c.LastPing = 0
@@ -43,16 +43,16 @@ func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 }
 
 func ScanConfigs(rows *sql.Rows) ([]*storage.ConfigRow, error) {
-	var out []*storage.ConfigRow
+	var configs []*storage.ConfigRow
 	for rows.Next() {
 		cfg, err := ScanConfig(rows)
 		if err != nil {
-			return nil, logger.Errorf("DATABASE", "scan configs: %w", err)
+			return nil, logger.Errorf("scanner", "scan configs: %w", err)
 		}
-		out = append(out, cfg)
+		configs = append(configs, cfg)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, logger.Errorf("DATABASE", "scan configs rows error: %w", err)
+		return nil, logger.Errorf("scanner", "rows error: %w", err)
 	}
-	return out, nil
+	return configs, nil
 }
