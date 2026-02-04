@@ -5,8 +5,11 @@ import (
 )
 
 type Repo struct {
-	DB  *sql.DB
+	DB   *sql.DB
 	Path string
+}
+type Scanner interface {
+	Scan(dest ...any) error
 }
 
 func New(db *sql.DB, path string) Repo {
