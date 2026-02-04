@@ -1,6 +1,8 @@
 package core
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 func (r Repo) InsertQuery(q *Query) (int64, error) {
 	sqlStr, args := q.Build()
