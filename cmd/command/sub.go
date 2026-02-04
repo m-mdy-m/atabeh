@@ -321,7 +321,7 @@ func syncSubscription(repo *repository.Repo, url string, testFirst, runTest bool
 	}
 
 	// Insert configs
-	inserted, err := repo.InsertBatch(configs, profileID)
+	inserted, err := repo.InsertConfigBatch(configs, profileID)
 	if err != nil {
 		return fmt.Errorf("insert configs: %w", err)
 	}
@@ -332,7 +332,7 @@ func syncSubscription(repo *repository.Repo, url string, testFirst, runTest bool
 	}
 
 	// Get totals
-	total, _ := repo.CountByProfile(int(profileID))
+	total, _ := repo.CountConfigsByProfile(int(profileID))
 
 	fmt.Printf("       Profile:  %s\n", profileName)
 	fmt.Printf("       Fetched:  %d\n", fetched)

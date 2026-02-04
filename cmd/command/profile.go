@@ -99,7 +99,7 @@ func (c *CLI) profileShowCmd() *cobra.Command {
 			fmt.Printf("  Source:  %s\n", trunc(profile.Source, 60))
 			fmt.Println()
 
-			configs, err := repo.ListByProfile(id)
+			configs, err := repo.ListConfigsByProfile(id)
 			if err != nil {
 				return err
 			}

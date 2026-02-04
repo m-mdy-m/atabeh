@@ -9,7 +9,6 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/logger"
 	"github.com/m-mdy-m/atabeh/internal/tester"
 	"github.com/m-mdy-m/atabeh/storage"
-	"github.com/m-mdy-m/atabeh/storage/core"
 	"github.com/m-mdy-m/atabeh/storage/repository"
 )
 
@@ -17,7 +16,9 @@ type CLI struct {
 	DBPath *string
 }
 
-func NewCLI(dbPath *string) *CLI { return &CLI{DBPath: dbPath} }
+func NewCLI(dbPath *string) *CLI {
+	return &CLI{DBPath: dbPath}
+}
 
 func (c *CLI) WrapRepo(handler func(*repository.Repo, *cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
@@ -27,15 +28,14 @@ func (c *CLI) WrapRepo(handler func(*repository.Repo, *cobra.Command, []string) 
 		}
 		defer db.Close()
 
-		coreRepo := core.New(db)
-		repo := repository.New(coreRepo)
+		repo := repository.NewFromDB(db)
 
 		return handler(repo, cmd, args)
 	}
 }
 
 func runSingle(repo *repository.Repo, cfg tester.Config, id int) error {
-	stored, err := repo.GetByID(id)
+	stored, err := repo.GetConfigByID(id)
 	if err != nil {
 		return fmt.Errorf("config id=%d: %w", id, err)
 	}
@@ -43,7 +43,7 @@ func runSingle(repo *repository.Repo, cfg tester.Config, id int) error {
 	norm := toNormalized(stored)
 	result := tester.Test(norm, cfg)
 
-	if err := repo.UpdatePingResult(id, result); err != nil {
+	if err := repo.UpdateConfigPingResult(id, result); err != nil {
 		return err
 	}
 	printPingResult(stored, result)
@@ -51,7 +51,7 @@ func runSingle(repo *repository.Repo, cfg tester.Config, id int) error {
 }
 
 func runAll(repo *repository.Repo, cfg tester.Config) error {
-	storeds, err := repo.List("")
+	storeds, err := repo.ListConfigs("")
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func runAll(repo *repository.Repo, cfg tester.Config) error {
 	results := tester.TestAll(norms, cfg)
 
 	for i, r := range results {
-		if err := repo.UpdatePingResult(storeds[i].ID, r); err != nil {
+		if err := repo.UpdateConfigPingResult(storeds[i].ID, r); err != nil {
 			logger.Errorf("test", "save result for id=%d: %v", storeds[i].ID, err)
 		}
 	}

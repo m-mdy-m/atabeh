@@ -43,9 +43,9 @@ Examples:
 			var err error
 
 			if aliveOnly {
-				configs, err = repo.ListAlive()
+				configs, err = repo.ListAliveConfigs()
 			} else {
-				configs, err = repo.List(common.Kind(proto))
+				configs, err = repo.ListConfigs(common.Kind(proto))
 			}
 
 			if err != nil {
@@ -93,7 +93,7 @@ func listGrouped(repo *repository.Repo) error {
 		fmt.Printf("  Type: %s  |  Configs: %d  |  Alive: %s\n",
 			profile.Type, profile.ConfigCount, green(fmt.Sprintf("%d", profile.AliveCount)))
 
-		configs, err := repo.ListByProfile(profile.ID)
+		configs, err := repo.ListConfigsByProfile(profile.ID)
 		if err != nil {
 			fmt.Printf("  Error loading configs: %v\n", err)
 			continue
@@ -121,7 +121,7 @@ func listByProfile(repo *repository.Repo, profileID int) error {
 	fmt.Printf("  Type:    %s\n", profile.Type)
 	fmt.Println()
 
-	configs, err := repo.ListByProfile(profileID)
+	configs, err := repo.ListConfigsByProfile(profileID)
 	if err != nil {
 		return err
 	}

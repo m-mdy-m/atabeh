@@ -69,7 +69,7 @@ func runProfileTest(repo *repository.Repo, cfg tester.Config, profileID int) err
 
 	fmt.Printf("\n  Testing profile: %s\n\n", profile.Name)
 
-	storeds, err := repo.ListByProfile(profileID)
+	storeds, err := repo.ListConfigsByProfile(profileID)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func runProfileTest(repo *repository.Repo, cfg tester.Config, profileID int) err
 }
 
 func runAllTest(repo *repository.Repo, cfg tester.Config) error {
-	storeds, err := repo.List("")
+	storeds, err := repo.ListConfigs("")
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func runTestsOnConfigs(repo *repository.Repo, cfg tester.Config, storeds []*stor
 		resultMap[storeds[i].ID] = result
 	}
 
-	if err := repo.UpdatePingBatch(resultMap); err != nil {
+	if err := repo.UpdateConfigPingBatch(resultMap); err != nil {
 		logger.Errorf("test", "update results: %v", err)
 	}
 

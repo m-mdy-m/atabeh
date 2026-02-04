@@ -24,7 +24,7 @@ Examples:
   atabeh rank
   atabeh test --all && atabeh rank`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
-			configs, err := repo.List("")
+			configs, err := repo.ListConfigs("")
 			if err != nil {
 				return err
 			}

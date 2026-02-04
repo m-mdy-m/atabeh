@@ -72,7 +72,7 @@ Examples:
 				return fmt.Errorf("create profile: %w", err)
 			}
 
-			inserted, err := repo.InsertBatch(configs, profileID)
+			inserted, err := repo.InsertConfigBatch(configs, profileID)
 			if err != nil {
 				return fmt.Errorf("insert configs: %w", err)
 			}
@@ -81,7 +81,7 @@ Examples:
 				logger.Warnf("sync", "update sync time: %v", err)
 			}
 
-			total, _ := repo.CountByProfile(int(profileID))
+			total, _ := repo.CountConfigsByProfile(int(profileID))
 			printSyncSummary(profileName, fetched, inserted, total)
 
 			if runTest && !testFirst {
@@ -124,7 +124,7 @@ func testAndFilterConfigs(configs []*common.NormalizedConfig, concurrent int) []
 }
 
 func testProfileConfigs(repo *repository.Repo, profileID int, concurrent int) error {
-	storeds, err := repo.ListByProfile(profileID)
+	storeds, err := repo.ListConfigsByProfile(profileID)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func testProfileConfigs(repo *repository.Repo, profileID int, concurrent int) er
 		resultMap[storeds[i].ID] = result
 	}
 
-	if err := repo.UpdatePingBatch(resultMap); err != nil {
+	if err := repo.UpdateConfigPingBatch(resultMap); err != nil {
 		logger.Errorf("test", "update results: %v", err)
 	}
 

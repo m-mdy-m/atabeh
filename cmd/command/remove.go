@@ -55,7 +55,7 @@ Examples:
 }
 
 func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
-	cfg, err := repo.GetByID(id)
+	cfg, err := repo.GetConfigByID(id)
 	if err != nil {
 		return fmt.Errorf("config id=%d not found: %w", id, err)
 	}
@@ -80,7 +80,7 @@ func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
 		}
 	}
 
-	if err := repo.DeleteByID(id); err != nil {
+	if err := repo.DeleteConfigByID(id); err != nil {
 		return err
 	}
 
@@ -151,24 +151,24 @@ func removeAllConfigs(repo *repository.Repo, skipConfirm bool) error {
 		return nil
 	}
 
-	totalConfigs, _ := repo.Count()
+	totalConfigs, _ := repo.CountConfigs()
 
 	if !skipConfirm {
-		fmt.Printf("  ⚠️  WARNING: This will delete EVERYTHING!\n\n")
-		fmt.Printf("  Profiles: %d\n", len(profiles))
-		fmt.Printf("  Configs:  %d\n", totalConfigs)
-		fmt.Printf("\n  This action cannot be undone!\n")
-		fmt.Printf("  Type 'DELETE ALL' to confirm: ")
+		fmt.Printf("⚠️  WARNING: This will delete EVERYTHING!\n\n")
+		fmt.Printf("Profiles: %d\n", len(profiles))
+		fmt.Printf("Configs:  %d\n", totalConfigs)
+		fmt.Printf("\nThis action cannot be undone!\n")
+		fmt.Printf("Are you sure? [y/N]: ")
 
 		var response string
 		fmt.Scanln(&response)
-		if response != "DELETE ALL" {
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" {
 			fmt.Println("  Cancelled.")
 			return nil
 		}
 	}
 
-	// Delete all profiles (CASCADE will delete all configs)
 	for _, profile := range profiles {
 		if err := repo.DeleteProfile(profile.ID); err != nil {
 			return fmt.Errorf("delete profile %d: %w", profile.ID, err)

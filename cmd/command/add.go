@@ -125,7 +125,7 @@ Examples:
 			// Insert configs
 			inserted := 0
 			for _, cfg := range configs {
-				_, isNew, err := repo.InsertOrSkip(cfg, profileID)
+				_, isNew, err := repo.InsertConfigOrSkip(cfg, profileID)
 				if err != nil {
 					logger.Warnf("add", "insert %q: %v", cfg.Name, err)
 					continue
@@ -135,7 +135,7 @@ Examples:
 				}
 			}
 
-			total, _ := repo.CountByProfile(int(profileID))
+			total, _ := repo.CountConfigsByProfile(int(profileID))
 			fmt.Printf("\n  Profile: %s\n", profileName)
 			fmt.Printf("  Added:   %d new config(s)\n", inserted)
 			fmt.Printf("  Skipped: %d duplicate(s)\n", len(configs)-inserted)
