@@ -17,19 +17,25 @@ var (
 
 var Root = &cobra.Command{
 	Use:   "atabeh",
-	Short: "Atabeh — VPN/proxy config fetcher, tester & ranker",
-	Long: `Atabeh collects VPN/proxy configs from subscriptions or manual input,
-tests every one for real connectivity, ranks them by latency, and stores
-the results in a local SQLite database.
+	Short: "Atabeh — VPN/proxy config manager with concurrent testing",
+	Long: `Atabeh collects, validates, tests, and ranks VPN/proxy configs.
+Supports profiles for organization and concurrent testing for speed.
 
 Examples:
-  atabeh add "vless://uuid@vpn.example.com:443?security=tls#Server1"
-  atabeh sync https://sub.example.com/configs
-  atabeh sub add https://raw.githubusercontent.com/user/repo/main/sub
-  atabeh sub sync-all --test
-  atabeh test --all
-  atabeh rank
-  atabeh list --alive`,
+  # Add configs with testing
+  atabeh add "vless://..." --test-first
+  
+  # Sync subscription with concurrent testing  
+  atabeh sync https://example.com/sub --test-first --concurrent 30
+  
+  # List profiles
+  atabeh profile list
+  
+  # Test all configs concurrently
+  atabeh test --all --concurrent 20
+  
+  # List configs grouped by profile
+  atabeh list --grouped`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -50,8 +56,9 @@ func init() {
 	Root.AddCommand(
 		cli.AddCommand(),
 		cli.SyncCommand(),
-		cli.ListCommand(),
 		cli.TestCommand(),
+		cli.ListCommand(),
+		cli.ProfileCommand(),
 		cli.RemoveCommand(),
 		cli.RankCommand(),
 		cli.SubCommand(),
