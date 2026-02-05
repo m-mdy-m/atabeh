@@ -15,9 +15,21 @@ var (
 	decorationRe = regexp.MustCompile(`[«»‹›「」【】〔〕（）()[\]{}⟨⟩🔥⚡🌟✨💫🎯🎪🎭🎨🎬🎤🏆🥇🎖️🎁🎀🎊]+`)
 	domainRe     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 	uuidRe       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+)
 
-	privateCIDRs []*net.IPNet
+var privateCIDRs []*net.IPNet
 
+func init() {
+	for _, cidr := range []string{
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"127.0.0.0/8", "169.254.0.0/16",
+	} {
+		_, ipNet, _ := net.ParseCIDR(cidr)
+		privateCIDRs = append(privateCIDRs, ipNet)
+	}
+}
+
+var (
 	validTransports = map[common.Kind]bool{
 		common.TCP: true, common.UDP: true,
 		common.WS: true, common.H2: true, common.GRPC: true,
@@ -29,16 +41,6 @@ var (
 		"2022-blake3-aes-128-gcm": true, "2022-blake3-aes-256-gcm": true,
 	}
 )
-
-func init() {
-	for _, cidr := range []string{
-		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-		"127.0.0.0/8", "169.254.0.0/16",
-	} {
-		_, ipNet, _ := net.ParseCIDR(cidr)
-		privateCIDRs = append(privateCIDRs, ipNet)
-	}
-}
 
 func Normalize(raw []*common.RawConfig) ([]*common.NormalizedConfig, error) {
 	seen := make(map[string]struct{}, len(raw))
@@ -53,9 +55,10 @@ func Normalize(raw []*common.RawConfig) ([]*common.NormalizedConfig, error) {
 
 		key := dedupKey(cfg)
 		if _, dup := seen[key]; dup {
-			logger.Debug("normalizer", fmt.Sprintf("[%d] duplicate, skipping: %s", i, cfg.Name))
+			logger.Debug("normalizer", fmt.Sprintf("[%d] duplicate: %s", i, cfg.Name))
 			continue
 		}
+
 		seen[key] = struct{}{}
 		out = append(out, cfg)
 	}
@@ -65,13 +68,14 @@ func Normalize(raw []*common.RawConfig) ([]*common.NormalizedConfig, error) {
 }
 
 func normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
+
 	if err := validate(r); err != nil {
 		return nil, err
 	}
 
-	name := extractAndCleanName(r)
+	name := cleanName(r.Name)
 	if name == "" {
-		name = fmt.Sprintf("atabeh-unknown-%s-%s", r.Protocol, r.Server)
+		name = generateFallbackName(r)
 	}
 
 	transport := r.Transport
@@ -85,108 +89,34 @@ func normalizeOne(r *common.RawConfig) (*common.NormalizedConfig, error) {
 	}
 
 	cfg := &common.NormalizedConfig{
-		Name: name, Protocol: r.Protocol,
-		Server: r.Server, Port: r.Port,
-		UUID: r.UUID, Password: r.Password, Method: r.Method,
-		Transport: transport, Security: security,
-		Extra: r.Extra,
+		Name:      name,
+		Protocol:  r.Protocol,
+		Server:    r.Server,
+		Port:      r.Port,
+		UUID:      r.UUID,
+		Password:  r.Password,
+		Method:    r.Method,
+		Transport: transport,
+		Security:  security,
+		Extra:     r.Extra,
 	}
 
 	if !validTransports[cfg.Transport] {
 		return nil, fmt.Errorf("invalid transport: %s", cfg.Transport)
 	}
+
 	return cfg, nil
 }
 
-func extractAndCleanName(r *common.RawConfig) string {
-	name := strings.TrimSpace(r.Name)
-
-	if name == "" || strings.HasPrefix(name, "atabeh-unknown") {
-		name = extractNameFromSource(r.Source)
-	}
-
-	name = urlDecodePersian(name)
-
-	name = cleanName(name)
-
-	name = removeChannelPrefixes(name)
-
-	name = cleanLocationCodes(name)
-
-	return strings.TrimSpace(name)
-}
-
-func extractNameFromSource(source string) string {
-	if source == "" || source == "manual" {
-		return ""
-	}
-
-	if idx := strings.LastIndex(source, "#"); idx != -1 && idx < len(source)-1 {
-		name := source[idx+1:]
-		if name != "" {
-			return name
-		}
-	}
-
-	if strings.HasPrefix(source, "subscription:") {
-		subURL := strings.TrimPrefix(source, "subscription:")
-		if idx := strings.LastIndex(subURL, "/"); idx != -1 && idx < len(subURL)-1 {
-			name := subURL[idx+1:]
-			name = strings.TrimSuffix(name, ".txt")
-			name = strings.TrimSuffix(name, ".conf")
-			if name != "" {
-				return name
-			}
-		}
-	}
-
-	return ""
-}
-
-func urlDecodePersian(s string) string {
-	decoded, err := url.QueryUnescape(s)
-	if err != nil {
-		return s
-	}
-	return decoded
-}
-
-func removeChannelPrefixes(name string) string {
-	prefixes := []string{
-		"@", "کانال", "گروه", "چنل",
-	}
-
-	for _, prefix := range prefixes {
-		name = strings.TrimPrefix(name, prefix)
-		name = strings.TrimSpace(name)
-	}
-
-	return name
-}
-
-func cleanLocationCodes(name string) string {
-
-	patterns := []string{
-		`^[🇦-🇿]{2}\s*\d+\s*[-–—]\s*`,   // Flag emoji + number + dash
-		`^\d+\s*[-–—]\s*`,              // Number + dash at start
-		`^[A-Z]{2}[-–—]\d+\s*[-–—]\s*`, // Country code like US-01 -
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		name = re.ReplaceAllString(name, "")
-	}
-
-	return strings.TrimSpace(name)
-}
-
 func validate(r *common.RawConfig) error {
+
 	if r.Server == "" {
-		return fmt.Errorf("missing server address")
+		return fmt.Errorf("missing server")
 	}
 	if !isValidServer(r.Server) {
-		return fmt.Errorf("invalid server address: %s", r.Server)
+		return fmt.Errorf("invalid server: %s", r.Server)
 	}
+
 	if r.Port <= 0 || r.Port > 65535 {
 		return fmt.Errorf("invalid port: %d", r.Port)
 	}
@@ -219,16 +149,20 @@ func validate(r *common.RawConfig) error {
 	default:
 		return fmt.Errorf("unsupported protocol: %s", r.Protocol)
 	}
+
 	return nil
 }
 
 func isValidServer(server string) bool {
+
 	if ip := net.ParseIP(server); ip != nil {
 		return !isPrivateIP(ip)
 	}
+
 	if len(server) > 253 || !strings.Contains(server, ".") {
 		return false
 	}
+
 	return domainRe.MatchString(server)
 }
 
@@ -243,8 +177,34 @@ func isPrivateIP(ip net.IP) bool {
 
 func cleanName(name string) string {
 	name = strings.TrimSpace(name)
+
+	decoded, err := url.QueryUnescape(name)
+	if err == nil {
+		name = decoded
+	}
+
 	name = decorationRe.ReplaceAllString(name, "")
+
+	for _, prefix := range []string{"@", "کانال", "گروه", "چنل"} {
+		name = strings.TrimPrefix(name, prefix)
+		name = strings.TrimSpace(name)
+	}
+
+	locationPatterns := []string{
+		`^[🇦-🇿]{2}\s*\d+\s*[-–—]\s*`,
+		`^\d+\s*[-–—]\s*`,
+		`^[A-Z]{2}[-–—]\d+\s*[-–—]\s*`,
+	}
+	for _, pattern := range locationPatterns {
+		re := regexp.MustCompile(pattern)
+		name = re.ReplaceAllString(name, "")
+	}
+
 	return strings.Join(strings.Fields(name), " ")
+}
+
+func generateFallbackName(r *common.RawConfig) string {
+	return fmt.Sprintf("atabeh-%s-%s", r.Protocol, r.Server)
 }
 
 func defaultTransport(proto common.Kind) common.Kind {
@@ -257,10 +217,13 @@ func defaultTransport(proto common.Kind) common.Kind {
 func dedupKey(cfg *common.NormalizedConfig) string {
 	switch cfg.Protocol {
 	case common.Vless, common.VMess:
-		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.UUID, cfg.Transport)
+		return fmt.Sprintf("%s|%s|%d|%s|%s",
+			cfg.Protocol, cfg.Server, cfg.Port, cfg.UUID, cfg.Transport)
 	case common.Shadowsocks:
-		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Method)
+		return fmt.Sprintf("%s|%s|%d|%s|%s",
+			cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Method)
 	default:
-		return fmt.Sprintf("%s|%s|%d|%s|%s", cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Transport)
+		return fmt.Sprintf("%s|%s|%d|%s|%s",
+			cfg.Protocol, cfg.Server, cfg.Port, cfg.Password, cfg.Transport)
 	}
 }

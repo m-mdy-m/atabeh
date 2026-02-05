@@ -3,7 +3,9 @@ package tester
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -14,18 +16,24 @@ import (
 const tag = "tester"
 
 type Config struct {
-	Attempts        int
-	Timeout         time.Duration
-	ConcurrentTests int
-	TestDelay       time.Duration
+	Attempts         int
+	Timeout          time.Duration
+	ConcurrentTests  int
+	TestDelay        time.Duration
+	BandwidthTest    bool
+	BandwidthTimeout time.Duration
+	MinBandwidthKBps int
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Attempts:        3,
-		Timeout:         5 * time.Second,
-		ConcurrentTests: 10,
-		TestDelay:       100 * time.Millisecond,
+		Attempts:         3,
+		Timeout:          5 * time.Second,
+		ConcurrentTests:  10,
+		TestDelay:        100 * time.Millisecond,
+		BandwidthTest:    false,
+		BandwidthTimeout: 10 * time.Second,
+		MinBandwidthKBps: 100,
 	}
 }
 
@@ -43,8 +51,7 @@ func NewTester(config Config) *Tester {
 
 func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 	addr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
-	logger.Infof(tag, "testing %q -> %s (%d attempts, timeout=%v)",
-		cfg.Name, addr, t.config.Attempts, t.config.Timeout)
+	logger.Infof(tag, "testing %q -> %s (%d attempts)", cfg.Name, addr, t.config.Attempts)
 
 	result := &common.PingResult{
 		Config:   cfg,
@@ -52,7 +59,7 @@ func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 	}
 
 	var latencies []int64
-	var successfulAttempts int
+	var successCount int
 
 	for i := 0; i < t.config.Attempts; i++ {
 		if i > 0 {
@@ -69,11 +76,11 @@ func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 		logger.Debugf(tag, "  [%s] attempt %d/%d: OK (%d ms)",
 			cfg.Name, i+1, t.config.Attempts, latency)
 		latencies = append(latencies, latency)
-		successfulAttempts++
+		successCount++
 	}
 
-	result.Successes = successfulAttempts
-	result.Reachable = successfulAttempts > 0
+	result.Successes = successCount
+	result.Reachable = successCount > 0
 
 	if len(latencies) > 0 {
 		result.MinMs = latencies[0]
@@ -95,6 +102,23 @@ func (t *Tester) Test(cfg *common.NormalizedConfig) *common.PingResult {
 
 	if result.Attempts > 0 {
 		result.LossPercent = ((result.Attempts - result.Successes) * 100) / result.Attempts
+	}
+
+	if t.config.BandwidthTest && result.Reachable {
+
+		if result.AvgMs < 50 {
+			bandwidthKBps := t.testBandwidth(addr)
+			logger.Debugf(tag, "  [%s] bandwidth: %d KB/s", cfg.Name, bandwidthKBps)
+
+			if bandwidthKBps < t.config.MinBandwidthKBps {
+
+				logger.Warnf(tag, "  [%s] FAKE PING detected: low bandwidth (%d KB/s < %d KB/s)",
+					cfg.Name, bandwidthKBps, t.config.MinBandwidthKBps)
+				result.Reachable = false
+				result.Successes = 0
+				result.LossPercent = 100
+			}
+		}
 	}
 
 	return result
@@ -164,6 +188,53 @@ func (t *Tester) pingOnce(addr string) (int64, error) {
 	return latency, nil
 }
 
+func (t *Tester) testBandwidth(addr string) int {
+
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.BandwidthTimeout)
+	defer cancel()
+
+	testURL := "http://www.google.com/generate_204"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
+	if err != nil {
+		return 0
+	}
+
+	start := time.Now()
+
+	client := &http.Client{
+		Timeout: t.config.BandwidthTimeout,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+
+				var dialer net.Dialer
+				return dialer.DialContext(ctx, network, addr)
+			},
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Debugf(tag, "bandwidth test failed: %v", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	bytesRead, err := io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		return 0
+	}
+
+	duration := time.Since(start)
+
+	if duration.Seconds() == 0 {
+		return 0
+	}
+
+	kbps := int(float64(bytesRead) / 1024.0 / duration.Seconds())
+	return kbps
+}
+
 func RankResults(results []*common.PingResult) []*common.PingResult {
 	ranked := make([]*common.PingResult, len(results))
 	copy(ranked, results)
@@ -180,15 +251,19 @@ func RankResults(results []*common.PingResult) []*common.PingResult {
 }
 
 func shouldSwap(a, b *common.PingResult) bool {
+
 	if a.Reachable != b.Reachable {
 		return !a.Reachable
 	}
+
 	if !a.Reachable {
 		return false
 	}
+
 	if a.LossPercent != b.LossPercent {
 		return a.LossPercent > b.LossPercent
 	}
+
 	return a.AvgMs > b.AvgMs
 }
 
