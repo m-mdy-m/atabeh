@@ -19,46 +19,44 @@ func (c *CLI) RemoveCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "remove [id]",
-		Short: "Remove config(s) or profile(s) from database",
-		Long: `Remove one or more configs, entire profiles, or everything.
+		Short: "Remove config(s) or profile(s)",
+		Long: `Remove configs, profiles, or everything.
 
 Examples:
-  atabeh remove 3                    # Remove config ID 3
-  atabeh remove --profile 2          # Remove entire profile 2
-  atabeh remove --all                # Remove everything
-  atabeh remove --all --yes          # Remove without confirmation`,
+  atabeh remove 3                  # Remove config ID 3
+  atabeh remove --profile 2        # Remove profile 2 (+ all its configs via CASCADE)
+  atabeh remove --all              # Remove everything
+  atabeh remove --all --yes        # Skip confirmation`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			switch {
 			case removeAll:
-				return removeAllConfigs(repo, confirm)
-
+				return handleRemoveAll(repo, confirm)
 			case removeProfile > 0:
-				return removeProfileAndConfigs(repo, removeProfile, confirm)
-
+				return handleRemoveProfile(repo, removeProfile, confirm)
 			case len(args) == 1:
 				id, err := strconv.Atoi(args[0])
 				if err != nil {
-					return fmt.Errorf("invalid config id %q: must be integer", args[0])
+					return fmt.Errorf("invalid config id: %q", args[0])
 				}
-				return removeSingleConfig(repo, id, confirm)
-
+				return handleRemoveConfig(repo, id, confirm)
 			default:
-				return fmt.Errorf("provide a config id, --profile <ID>, or --all")
+				return fmt.Errorf("provide config id, --profile <ID>, or --all")
 			}
 		}),
 	}
 
-	cmd.Flags().IntVar(&removeProfile, "profile", 0, "remove entire profile and all its configs")
-	cmd.Flags().BoolVar(&removeAll, "all", false, "remove all configs and profiles")
-	cmd.Flags().BoolVarP(&confirm, "yes", "y", false, "skip confirmation prompt")
+	cmd.Flags().IntVar(&removeProfile, "profile", 0, "remove entire profile + configs")
+	cmd.Flags().BoolVar(&removeAll, "all", false, "remove everything")
+	cmd.Flags().BoolVarP(&confirm, "yes", "y", false, "skip confirmation")
 	return cmd
 }
 
-func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
+func handleRemoveConfig(repo *repository.Repo, id int, skipConfirm bool) error {
 	cfg, err := repo.GetConfigByID(id)
 	if err != nil {
-		return fmt.Errorf("config id=%d not found: %w", id, err)
+		return fmt.Errorf("config %d not found: %w", id, err)
 	}
+
 	profile, err := repo.GetProfile(cfg.ProfileID)
 	if err != nil {
 		return fmt.Errorf("get profile: %w", err)
@@ -66,10 +64,10 @@ func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
 
 	if !skipConfirm {
 		fmt.Printf("  Remove config:\n")
-		fmt.Printf("    ID:       %d\n", cfg.ID)
-		fmt.Printf("    Name:     %s\n", cfg.Name)
-		fmt.Printf("    Server:   %s:%d\n", cfg.Server, cfg.Port)
-		fmt.Printf("    Profile:  %s\n", profile.Name)
+		fmt.Printf("    ID:      %d\n", cfg.ID)
+		fmt.Printf("    Name:    %s\n", cfg.Name)
+		fmt.Printf("    Server:  %s:%d\n", cfg.Server, cfg.Port)
+		fmt.Printf("    Profile: %s\n", profile.Name)
 		fmt.Printf("\n  Continue? [y/N]: ")
 
 		var response string
@@ -84,9 +82,9 @@ func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
 		return err
 	}
 
-	fmt.Printf("  ✓ Removed config id=%d (%s)\n", id, cfg.Name)
+	fmt.Printf("  ✓ Removed config %d (%s)\n", id, cfg.Name)
 
-	// Show updated profile stats
+	// Show updated stats
 	updatedProfile, err := repo.GetProfile(cfg.ProfileID)
 	if err == nil {
 		fmt.Printf("  Profile '%s' now has %d config(s)\n",
@@ -96,21 +94,20 @@ func removeSingleConfig(repo *repository.Repo, id int, skipConfirm bool) error {
 	return nil
 }
 
-func removeProfileAndConfigs(repo *repository.Repo, profileID int, skipConfirm bool) error {
-	// Get profile info first
+func handleRemoveProfile(repo *repository.Repo, profileID int, skipConfirm bool) error {
 	profile, err := repo.GetProfile(profileID)
 	if err != nil {
-		return fmt.Errorf("profile id=%d not found: %w", profileID, err)
+		return fmt.Errorf("profile %d not found: %w", profileID, err)
 	}
 
 	if !skipConfirm {
 		fmt.Printf("  Remove profile:\n")
-		fmt.Printf("    ID:       %d\n", profile.ID)
-		fmt.Printf("    Name:     %s\n", profile.Name)
-		fmt.Printf("    Type:     %s\n", profile.Type)
-		fmt.Printf("    Configs:  %d total, %d alive\n",
+		fmt.Printf("    ID:      %d\n", profile.ID)
+		fmt.Printf("    Name:    %s\n", profile.Name)
+		fmt.Printf("    Type:    %s\n", profile.Type)
+		fmt.Printf("    Configs: %d total, %d alive\n",
 			profile.ConfigCount, profile.AliveCount)
-		fmt.Printf("\n  This will delete the profile AND all %d config(s)!\n",
+		fmt.Printf("\n  ⚠️  CASCADE DELETE: all %d config(s) will be removed!\n",
 			profile.ConfigCount)
 		fmt.Printf("  Continue? [y/N]: ")
 
@@ -122,15 +119,14 @@ func removeProfileAndConfigs(repo *repository.Repo, profileID int, skipConfirm b
 		}
 	}
 
-	// Delete profile (CASCADE will delete all configs)
 	if err := repo.DeleteProfile(profileID); err != nil {
-		return fmt.Errorf("delete profile: %w", err)
+		return err
 	}
 
 	fmt.Printf("  ✓ Removed profile '%s' and %d config(s)\n",
 		profile.Name, profile.ConfigCount)
 
-	// Show remaining stats
+	// Show remaining
 	profiles, err := repo.ListProfiles()
 	if err == nil {
 		fmt.Printf("  %d profile(s) remaining\n", len(profiles))
@@ -139,8 +135,7 @@ func removeProfileAndConfigs(repo *repository.Repo, profileID int, skipConfirm b
 	return nil
 }
 
-func removeAllConfigs(repo *repository.Repo, skipConfirm bool) error {
-	// Get current stats
+func handleRemoveAll(repo *repository.Repo, skipConfirm bool) error {
 	profiles, err := repo.ListProfiles()
 	if err != nil {
 		return err
@@ -154,11 +149,11 @@ func removeAllConfigs(repo *repository.Repo, skipConfirm bool) error {
 	totalConfigs, _ := repo.CountConfigs()
 
 	if !skipConfirm {
-		fmt.Printf("⚠️  WARNING: This will delete EVERYTHING!\n\n")
-		fmt.Printf("Profiles: %d\n", len(profiles))
-		fmt.Printf("Configs:  %d\n", totalConfigs)
-		fmt.Printf("\nThis action cannot be undone!\n")
-		fmt.Printf("Are you sure? [y/N]: ")
+		fmt.Printf("  ⚠️  WARNING: This will delete EVERYTHING!\n\n")
+		fmt.Printf("  Profiles: %d\n", len(profiles))
+		fmt.Printf("  Configs:  %d\n", totalConfigs)
+		fmt.Printf("\n  This action cannot be undone!\n")
+		fmt.Printf("  Are you sure? [y/N]: ")
 
 		var response string
 		fmt.Scanln(&response)

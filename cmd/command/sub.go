@@ -9,7 +9,6 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/logger"
 	"github.com/m-mdy-m/atabeh/internal/normalizer"
 	"github.com/m-mdy-m/atabeh/internal/parsers"
-	"github.com/m-mdy-m/atabeh/storage"
 	"github.com/m-mdy-m/atabeh/storage/repository"
 )
 
@@ -17,20 +16,15 @@ func (c *CLI) SubCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sub",
 		Short: "Manage subscription URLs",
-		Long: `Subscription management - save URLs, sync them, and test configs.
+		Long: `Subscription management - save URLs, sync them, test configs.
 
 Examples:
-  # Save a subscription
-  atabeh sub add https://example.com/sub
-
-  # List saved subscriptions  
-  atabeh sub list
-
-  # Sync all subscriptions with concurrent testing
-  atabeh sub sync-all --test-first --concurrent 30
-
-  # Remove a subscription
-  atabeh sub remove https://example.com/sub`,
+  atabeh sub add <url>               # Save subscription
+  atabeh sub list                    # List saved subscriptions  
+  atabeh sub sync                    # Sync latest subscription
+  atabeh sub sync <url>              # Sync specific subscription
+  atabeh sub sync-all                # Sync all subscriptions
+  atabeh sub remove <url>            # Remove subscription`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -39,9 +33,9 @@ Examples:
 	cmd.AddCommand(
 		c.subAddCmd(),
 		c.subListCmd(),
-		c.subRemoveCmd(),
+		c.subSyncCmd(),
 		c.subSyncAllCmd(),
-		c.subSyncOneCmd(),
+		c.subRemoveCmd(),
 	)
 	return cmd
 }
@@ -50,31 +44,21 @@ func (c *CLI) subAddCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <url>",
 		Short: "Save a subscription URL",
-		Long: `Save a subscription URL for later syncing.
-The URL is stored but configs are NOT fetched yet.
-
-Use 'sub sync-all' or 'sub sync <url>' to fetch configs.
-
-Examples:
-  atabeh sub add https://example.com/sub
-  atabeh sub add https://raw.githubusercontent.com/user/repo/main/configs.txt`,
-		Args: cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(1),
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			url := args[0]
 
-			// Validate URL format
 			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 				return fmt.Errorf("invalid URL: must start with http:// or https://")
 			}
 
-			// Add to subscriptions table
 			err := repo.AddSubscription(url)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("  ✓ Saved subscription: %s\n", url)
-			fmt.Printf("\n  Use 'atabeh sub sync %s' to fetch configs\n", truncateURL(url, 40))
+			fmt.Printf("  ✓ Saved subscription: %s\n", truncateURL(url, 60))
+			fmt.Printf("\n  Use 'atabeh sub sync' to fetch configs\n")
 			return nil
 		}),
 	}
@@ -86,11 +70,6 @@ func (c *CLI) subListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Show all saved subscriptions",
-		Long: `Lists all subscription URLs and their associated profiles.
-
-Examples:
-  atabeh sub list
-  atabeh sub list --stats`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			subs, err := repo.ListSubscriptions()
 			if err != nil {
@@ -106,14 +85,13 @@ Examples:
 			fmt.Printf("  Saved subscriptions (%d):\n\n", len(subs))
 
 			for i, url := range subs {
-				fmt.Printf("  %d. %s\n", i+1, url)
+				fmt.Printf("  %d. %s\n", i+1, truncateURL(url, 70))
 
 				if showStats {
-					// Find profile for this subscription
 					profiles, err := repo.ListProfiles()
 					if err == nil {
 						for _, p := range profiles {
-							if p.Source == url || p.Source == "subscription:"+url {
+							if p.Source == url {
 								fmt.Printf("     → Profile: %s (%d configs, %d alive)\n",
 									p.Name, p.ConfigCount, p.AliveCount)
 								if p.LastSyncedAt != "" {
@@ -135,92 +113,65 @@ Examples:
 		}),
 	}
 
-	cmd.Flags().BoolVar(&showStats, "stats", false, "show profile statistics for each subscription")
+	cmd.Flags().BoolVar(&showStats, "stats", false, "show profile stats")
 	return cmd
 }
 
-func (c *CLI) subRemoveCmd() *cobra.Command {
-	var (
-		removeAll bool
-		confirm   bool
-	)
-
-	cmd := &cobra.Command{
-		Use:   "remove [url]",
-		Short: "Remove a saved subscription",
-		Long: `Removes a subscription URL and optionally its profile and configs.
-
-Examples:
-  # Remove subscription only (keep profile and configs)
-  atabeh sub remove https://example.com/sub
-
-  # Remove all subscriptions
-  atabeh sub remove --all
-
-  # Skip confirmation
-  atabeh sub remove https://example.com/sub --yes`,
-		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
-			if removeAll {
-				return removeAllSubscriptions(repo, confirm)
-			}
-
-			if len(args) != 1 {
-				return fmt.Errorf("provide a URL or use --all")
-			}
-
-			url := args[0]
-			return removeSingleSubscription(repo, url, confirm)
-		}),
-	}
-
-	cmd.Flags().BoolVar(&removeAll, "all", false, "remove all saved subscriptions")
-	cmd.Flags().BoolVarP(&confirm, "yes", "y", false, "skip confirmation prompt")
-	return cmd
-}
-
-func (c *CLI) subSyncOneCmd() *cobra.Command {
+func (c *CLI) subSyncCmd() *cobra.Command {
 	var (
 		testFirst  bool
-		runTest    bool
 		concurrent int
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sync <url>",
-		Short: "Sync a specific subscription",
-		Long: `Fetch and sync configs from a specific subscription URL.
+		Use:   "sync [url]",
+		Short: "Sync subscription (latest if no URL given)",
+		Long: `Fetch and sync configs from subscription.
+If no URL provided, syncs the latest added subscription.
 
 Examples:
-  atabeh sub sync https://example.com/sub
-  atabeh sub sync https://example.com/sub --test-first --concurrent 30`,
-		Args: cobra.ExactArgs(1),
+  atabeh sub sync                     # Sync latest subscription
+  atabeh sub sync <url>               # Sync specific URL
+  atabeh sub sync --test-first        # Test before saving`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
-			url := args[0]
-			return syncSubscription(repo, url, testFirst, runTest, concurrent)
+			var url string
+			var err error
+
+			if len(args) == 0 {
+				url, err = repo.GetLatestSubscription()
+				if err != nil {
+					return fmt.Errorf("no subscriptions found. Use 'atabeh sub add <url>' first")
+				}
+				fmt.Printf("  Using latest subscription: %s\n\n", truncateURL(url, 60))
+			} else {
+				url = args[0]
+				exists, err := repo.SubscriptionExists(url)
+				if err != nil {
+					return err
+				}
+				if !exists {
+					return fmt.Errorf("subscription not found: %s\nUse 'atabeh sub add <url>' first", url)
+				}
+			}
+
+			return syncSubscription(repo, url, testFirst, concurrent)
 		}),
 	}
 
 	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test configs before saving")
-	cmd.Flags().BoolVar(&runTest, "test", false, "test configs after saving")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 20, "number of concurrent tests")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 20, "concurrent tests")
 	return cmd
 }
 
 func (c *CLI) subSyncAllCmd() *cobra.Command {
 	var (
 		testFirst  bool
-		runTest    bool
 		concurrent int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "sync-all",
 		Short: "Sync all saved subscriptions",
-		Long: `Fetch and sync configs from every saved subscription.
-
-Examples:
-  atabeh sub sync-all
-  atabeh sub sync-all --test-first --concurrent 30`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			subs, err := repo.ListSubscriptions()
 			if err != nil {
@@ -236,12 +187,12 @@ Examples:
 			fmt.Printf("  Syncing %d subscription(s)...\n\n", len(subs))
 
 			successCount := 0
-			failedSubs := []string{}
+			var failedSubs []string
 
 			for i, url := range subs {
 				fmt.Printf("  [%d/%d] %s\n", i+1, len(subs), truncateURL(url, 60))
 
-				err := syncSubscription(repo, url, testFirst, false, concurrent)
+				err := syncSubscription(repo, url, testFirst, concurrent)
 				if err != nil {
 					logger.Warnf("sub", "sync %s: %v", url, err)
 					failedSubs = append(failedSubs, url)
@@ -264,155 +215,73 @@ Examples:
 				}
 			}
 
-			// Test all if requested
-			if runTest {
-				fmt.Println()
-				return testAllProfiles(repo, concurrent)
-			}
-
 			return nil
 		}),
 	}
 
-	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test configs before saving")
-	cmd.Flags().BoolVar(&runTest, "test", false, "test all configs after syncing")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 20, "number of concurrent tests")
+	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test before saving")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 20, "concurrent tests")
 	return cmd
 }
 
-// ========== Helper Functions ==========
+func (c *CLI) subRemoveCmd() *cobra.Command {
+	var (
+		removeAll bool
+		confirm   bool
+	)
 
-func syncSubscription(repo *repository.Repo, url string, testFirst, runTest bool, concurrent int) error {
-	// Fetch and parse
-	logger.Infof("sub", "fetching: %s", url)
-	rawConfigs, err := parsers.FetchAndParseAll(url)
-	if err != nil {
-		return fmt.Errorf("fetch: %w", err)
-	}
-	fetched := len(rawConfigs)
-	logger.Infof("sub", "fetched %d configs", fetched)
+	cmd := &cobra.Command{
+		Use:   "remove [url]",
+		Short: "Remove a saved subscription",
+		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
+			if removeAll {
+				return handleRemoveAllSubs(repo, confirm)
+			}
 
-	// Normalize
-	configs, err := normalizer.Normalize(rawConfigs)
-	if err != nil {
-		return fmt.Errorf("normalize: %w", err)
-	}
-	logger.Infof("sub", "normalized %d configs", len(configs))
+			if len(args) != 1 {
+				return fmt.Errorf("provide a URL or use --all")
+			}
 
-	if len(configs) == 0 {
-		return fmt.Errorf("no valid configs found")
-	}
-
-	// Test first if requested
-	if testFirst {
-		logger.Infof("sub", "testing configs before save...")
-		configs = testAndFilterConfigs(configs, concurrent)
-		if len(configs) == 0 {
-			return fmt.Errorf("no configs passed tests")
-		}
-		logger.Infof("sub", "%d configs passed tests", len(configs))
+			return handleRemoveSub(repo, args[0], confirm)
+		}),
 	}
 
-	// Get or create profile
-	profileName := parsers.ExtractProfileName(url)
-	profileID, err := repo.GetOrCreateProfile(profileName, url, "subscription")
-	if err != nil {
-		return fmt.Errorf("create profile: %w", err)
-	}
-
-	// Insert configs
-	inserted, err := repo.InsertConfigBatch(configs, profileID)
-	if err != nil {
-		return fmt.Errorf("insert configs: %w", err)
-	}
-
-	// Update sync time
-	if err := repo.UpdateProfileSyncTime(profileID); err != nil {
-		logger.Warnf("sub", "update sync time: %v", err)
-	}
-
-	// Get totals
-	total, _ := repo.CountConfigsByProfile(int(profileID))
-
-	fmt.Printf("       Profile:  %s\n", profileName)
-	fmt.Printf("       Fetched:  %d\n", fetched)
-	fmt.Printf("       Added:    %d new\n", inserted)
-	fmt.Printf("       Skipped:  %d duplicate(s)\n", len(configs)-inserted)
-	fmt.Printf("       Total:    %d in profile\n", total)
-
-	// Test after save if requested
-	if runTest && !testFirst {
-		logger.Infof("sub", "testing saved configs...")
-		return testProfileConfigs(repo, int(profileID), concurrent)
-	}
-
-	return nil
+	cmd.Flags().BoolVar(&removeAll, "all", false, "remove all subscriptions")
+	cmd.Flags().BoolVarP(&confirm, "yes", "y", false, "skip confirmation")
+	return cmd
 }
 
-func removeSingleSubscription(repo *repository.Repo, url string, skipConfirm bool) error {
-	// Check if subscription exists
-	subs, err := repo.ListSubscriptions()
+func handleRemoveSub(repo *repository.Repo, url string, skipConfirm bool) error {
+	exists, err := repo.SubscriptionExists(url)
 	if err != nil {
 		return err
 	}
-
-	found := false
-	for _, s := range subs {
-		if s == url {
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if !exists {
 		return fmt.Errorf("subscription not found: %s", url)
 	}
 
-	// Find associated profile
-	var profile *storage.ProfileRow
-	profiles, err := repo.ListProfiles()
-	if err == nil {
-		for _, p := range profiles {
-			if p.Source == url || p.Source == "subscription:"+url {
-				profile = p
-				break
-			}
-		}
-	}
-
-	// Confirmation
 	if !skipConfirm {
-		fmt.Printf("  Remove subscription:\n")
-		fmt.Printf("    URL: %s\n", url)
-		if profile != nil {
-			fmt.Printf("    Profile: %s (%d configs)\n", profile.Name, profile.ConfigCount)
-			fmt.Printf("\n  Note: Profile and configs will remain. Use 'atabeh profile delete %d' to remove them.\n", profile.ID)
-		}
+		fmt.Printf("  Remove subscription: %s\n", truncateURL(url, 60))
+		fmt.Printf("  Note: Profile and configs will remain.\n")
 		fmt.Printf("\n  Continue? [y/N]: ")
 
 		var response string
 		fmt.Scanln(&response)
-
 		if strings.ToLower(response) != "y" {
 			fmt.Println("  Cancelled.")
 			return nil
 		}
 	}
 
-	// Remove subscription
 	if err := repo.RemoveSubscription(url); err != nil {
 		return err
 	}
 
 	fmt.Printf("  ✓ Removed subscription\n")
-	if profile != nil {
-		fmt.Printf("  Profile '%s' and its configs are still available\n", profile.Name)
-	}
-
 	return nil
 }
 
-func removeAllSubscriptions(repo *repository.Repo, skipConfirm bool) error {
+func handleRemoveAllSubs(repo *repository.Repo, skipConfirm bool) error {
 	subs, err := repo.ListSubscriptions()
 	if err != nil {
 		return err
@@ -423,7 +292,6 @@ func removeAllSubscriptions(repo *repository.Repo, skipConfirm bool) error {
 		return nil
 	}
 
-	// Confirmation
 	if !skipConfirm {
 		fmt.Printf("  Remove all %d subscription(s)?\n", len(subs))
 		fmt.Printf("  Note: Profiles and configs will remain.\n")
@@ -431,14 +299,12 @@ func removeAllSubscriptions(repo *repository.Repo, skipConfirm bool) error {
 
 		var response string
 		fmt.Scanln(&response)
-
 		if strings.ToLower(response) != "y" {
 			fmt.Println("  Cancelled.")
 			return nil
 		}
 	}
 
-	// Remove all
 	if err := repo.ClearSubscriptions(); err != nil {
 		return err
 	}
@@ -447,30 +313,53 @@ func removeAllSubscriptions(repo *repository.Repo, skipConfirm bool) error {
 	return nil
 }
 
-func testAllProfiles(repo *repository.Repo, concurrent int) error {
-	profiles, err := repo.ListProfiles()
+func syncSubscription(repo *repository.Repo, url string, testFirst bool, concurrent int) error {
+	logger.Infof("sub", "fetching: %s", url)
+
+	rawConfigs, err := parsers.FetchAndParseAll(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("fetch: %w", err)
+	}
+	fetched := len(rawConfigs)
+	logger.Infof("sub", "fetched %d configs", fetched)
+
+	configs, err := normalizer.Normalize(rawConfigs)
+	if err != nil {
+		return fmt.Errorf("normalize: %w", err)
+	}
+	logger.Infof("sub", "normalized %d configs", len(configs))
+
+	if len(configs) == 0 {
+		return fmt.Errorf("no valid configs found")
 	}
 
-	if len(profiles) == 0 {
-		fmt.Println("  No profiles to test.")
-		return nil
-	}
-
-	fmt.Printf("  Testing all profiles...\n\n")
-
-	for _, profile := range profiles {
-		if profile.ConfigCount == 0 {
-			continue
+	if testFirst {
+		logger.Infof("sub", "testing configs before save...")
+		configs = testAndFilterConfigs(configs, concurrent)
+		if len(configs) == 0 {
+			return fmt.Errorf("no configs passed tests")
 		}
-
-		fmt.Printf("  Profile: %s\n", profile.Name)
-		if err := testProfileConfigs(repo, profile.ID, concurrent); err != nil {
-			logger.Warnf("test", "profile %d: %v", profile.ID, err)
-		}
-		fmt.Println()
+		logger.Infof("sub", "%d configs passed tests", len(configs))
 	}
+	profileName := parsers.ExtractProfileName(url)
+	profileID, err := repo.GetOrCreateProfile(profileName, url, "subscription")
+	if err != nil {
+		return fmt.Errorf("create profile: %w", err)
+	}
+	inserted, err := repo.InsertConfigBatch(configs, profileID)
+	if err != nil {
+		return fmt.Errorf("insert configs: %w", err)
+	}
+	if err := repo.UpdateProfileSyncTime(profileID); err != nil {
+		logger.Warnf("sub", "update sync time: %v", err)
+	}
+	total, _ := repo.CountConfigsByProfile(int(profileID))
+
+	fmt.Printf("       Profile:  %s\n", profileName)
+	fmt.Printf("       Fetched:  %d\n", fetched)
+	fmt.Printf("       Added:    %d new\n", inserted)
+	fmt.Printf("       Skipped:  %d duplicate(s)\n", len(configs)-inserted)
+	fmt.Printf("       Total:    %d in profile\n", total)
 
 	return nil
 }

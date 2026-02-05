@@ -14,12 +14,19 @@ import (
 )
 
 func (c *CLI) TestCommand() *cobra.Command {
+	baseCfg := tester.DefaultConfig()
+
 	var (
-		testAll     bool
-		testID      int
-		testProfile int
-		testTimeout int
-		concurrent  int
+		testAll          bool
+		testID           int
+		testProfile      int
+		testTimeout      int
+		concurrent       int
+		attempts         = baseCfg.Attempts
+		delayMs          = int(baseCfg.TestDelay / time.Millisecond)
+		bandwidthFlag    = baseCfg.BandwidthTest
+		bandwidthTimeout = int(baseCfg.BandwidthTimeout / time.Second)
+		minBandwidthKBps = baseCfg.MinBandwidthKBps
 	)
 
 	cmd := &cobra.Command{
@@ -31,13 +38,17 @@ Examples:
   atabeh test --all
   atabeh test --id 3
   atabeh test --profile 1
-  atabeh test --all --concurrent 30 --timeout 10`,
+  atabeh test --all --concurrent 30 --timeout 10
+  atabeh test --all --attempts 5 --delay 200 --bandwidth --bandwidth-timeout 8 --min-bandwidth 150`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			cfg := tester.Config{
-				Attempts:        3,
-				Timeout:         time.Duration(testTimeout) * time.Second,
-				ConcurrentTests: concurrent,
-				TestDelay:       100 * time.Millisecond,
+				Attempts:         attempts,
+				Timeout:          time.Duration(testTimeout) * time.Second,
+				ConcurrentTests:  concurrent,
+				TestDelay:        time.Duration(delayMs) * time.Millisecond,
+				BandwidthTest:    bandwidthFlag,
+				BandwidthTimeout: time.Duration(bandwidthTimeout) * time.Second,
+				MinBandwidthKBps: minBandwidthKBps,
 			}
 
 			switch {
@@ -56,8 +67,14 @@ Examples:
 	cmd.Flags().BoolVar(&testAll, "all", false, "test all stored configs")
 	cmd.Flags().IntVar(&testID, "id", 0, "test a single config by id")
 	cmd.Flags().IntVar(&testProfile, "profile", 0, "test all configs in a profile")
-	cmd.Flags().IntVar(&testTimeout, "timeout", 5, "per-connection timeout in seconds")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 20, "number of concurrent tests")
+	cmd.Flags().IntVar(&testTimeout, "timeout", int(baseCfg.Timeout/time.Second), "per-connection timeout in seconds")
+	cmd.Flags().IntVar(&concurrent, "concurrent", baseCfg.ConcurrentTests, "number of concurrent tests")
+	cmd.Flags().IntVar(&attempts, "attempts", attempts, "number of attempts per config")
+	cmd.Flags().IntVar(&delayMs, "delay", delayMs, "delay between attempts in milliseconds")
+	cmd.Flags().BoolVar(&bandwidthFlag, "bandwidth", bandwidthFlag, "enable bandwidth test to detect fake pings")
+	cmd.Flags().IntVar(&bandwidthTimeout, "bandwidth-timeout", bandwidthTimeout, "timeout for bandwidth test in seconds")
+	cmd.Flags().IntVar(&minBandwidthKBps, "min-bandwidth", minBandwidthKBps, "minimum acceptable bandwidth in KB/s (used when --bandwidth is set)")
+
 	return cmd
 }
 
@@ -106,10 +123,8 @@ func runTestsOnConfigs(repo *repository.Repo, cfg tester.Config, storeds []*stor
 	logger.Infof("test", "testing %d configs with concurrency=%d",
 		len(norms), cfg.ConcurrentTests)
 
-	// Test all concurrently
 	results := tester.TestAll(norms, cfg)
 
-	// Update database in batch
 	resultMap := make(map[int]*common.PingResult)
 	for i, result := range results {
 		resultMap[storeds[i].ID] = result
