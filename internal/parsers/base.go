@@ -59,6 +59,10 @@ func ParseURIs(uris []string) ([]*common.RawConfig, error) {
 			logger.Warn("parser", string(proto)+" parse error: "+err.Error())
 			continue
 		}
+		if cfg.Extra == nil {
+			cfg.Extra = map[string]string{}
+		}
+		cfg.Extra["raw_uri"] = uri
 		cfg.Source = "uri"
 		configs = append(configs, cfg)
 	}
