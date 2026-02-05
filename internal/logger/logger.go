@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -93,7 +94,7 @@ func Error(tag, msg string) error {
 	if enabled(LevelError) {
 		emit(LevelError, tag, msg)
 	}
-	return fmt.Errorf(msg)
+	return errors.New(msg)
 }
 func Errorf(tag, format string, a ...any) error {
 	safeFormat := strings.ReplaceAll(format, "%w", "%v")
