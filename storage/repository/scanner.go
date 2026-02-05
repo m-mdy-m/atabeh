@@ -3,12 +3,11 @@ package repository
 import (
 	"database/sql"
 
-	"github.com/m-mdy-m/atabeh/internal/logger"
 	"github.com/m-mdy-m/atabeh/storage"
 	"github.com/m-mdy-m/atabeh/storage/core"
 )
 
-func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
+func scanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 	var c storage.ConfigRow
 	var extraRaw sql.NullString
 	var isAlive sql.NullInt64
@@ -17,10 +16,9 @@ func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 	err := s.Scan(
 		&c.ID, &c.ProfileID, &c.Name, &c.Protocol, &c.Server, &c.Port,
 		&c.UUID, &c.Password, &c.Method, &c.Transport, &c.Security,
-		&extraRaw, &c.Source, &lastPing, &isAlive, &c.CreatedAt, &c.UpdatedAt,
-	)
+		&extraRaw, &c.Source, &lastPing, &isAlive, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
-		return nil, logger.Errorf("scanner", "scan config: %w", err)
+		return nil, err
 	}
 
 	c.LastPing = 0
@@ -28,10 +26,7 @@ func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 		c.LastPing = lastPing.Int64
 	}
 
-	c.IsAlive = false
-	if isAlive.Valid && isAlive.Int64 == 1 {
-		c.IsAlive = true
-	}
+	c.IsAlive = isAlive.Valid && isAlive.Int64 == 1
 
 	if extraRaw.Valid {
 		c.Extra = extraRaw.String
@@ -40,19 +35,4 @@ func ScanConfig(s core.Scanner) (*storage.ConfigRow, error) {
 	}
 
 	return &c, nil
-}
-
-func ScanConfigs(rows *sql.Rows) ([]*storage.ConfigRow, error) {
-	var configs []*storage.ConfigRow
-	for rows.Next() {
-		cfg, err := ScanConfig(rows)
-		if err != nil {
-			return nil, logger.Errorf("scanner", "scan configs: %w", err)
-		}
-		configs = append(configs, cfg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, logger.Errorf("scanner", "rows error: %w", err)
-	}
-	return configs, nil
 }

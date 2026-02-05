@@ -1,26 +1,17 @@
 package repository
 
 import (
-	"github.com/m-mdy-m/atabeh/storage/core"
+	"database/sql"
+	"fmt"
 )
 
 func (r *Repo) AddSubscription(url string) error {
-	q := core.InsertInto(core.TableSubscriptions).
-		Columns(core.SubscriptionColURL).
-		Values(url).
-		OrIgnore()
-
-	_, err := r.core.InsertQuery(q)
+	_, err := r.core.DB.Exec("INSERT OR IGNORE INTO subscriptions (url) VALUES (?)", url)
 	return err
 }
 
 func (r *Repo) ListSubscriptions() ([]string, error) {
-	q := core.Select(core.SubscriptionColURL).
-		From(core.TableSubscriptions).
-		OrderBy(core.SubscriptionColURL)
-
-	sqlStr, args := q.Build()
-	rows, err := r.core.DB.Query(sqlStr, args...)
+	rows, err := r.core.DB.Query("SELECT url FROM subscriptions ORDER BY url")
 	if err != nil {
 		return nil, err
 	}
@@ -37,16 +28,34 @@ func (r *Repo) ListSubscriptions() ([]string, error) {
 	return urls, rows.Err()
 }
 
-func (r *Repo) RemoveSubscription(url string) error {
-	q := core.DeleteFrom(core.TableSubscriptions).
-		Where(core.SubscriptionColURL+" = ?", url)
+func (r *Repo) SubscriptionExists(url string) (bool, error) {
+	var exists int
+	err := r.core.DB.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE url = ?", url).Scan(&exists)
+	return exists > 0, err
+}
 
-	_, err := r.core.ExecQuery(q)
-	return err
+func (r *Repo) GetLatestSubscription() (string, error) {
+	var url string
+	err := r.core.DB.QueryRow("SELECT url FROM subscriptions ORDER BY rowid DESC LIMIT 1").Scan(&url)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("no subscriptions found")
+	}
+	return url, err
+}
+
+func (r *Repo) RemoveSubscription(url string) error {
+	res, err := r.core.DB.Exec("DELETE FROM subscriptions WHERE url = ?", url)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("subscription not found: %s", url)
+	}
+	return nil
 }
 
 func (r *Repo) ClearSubscriptions() error {
-	q := core.DeleteFrom(core.TableSubscriptions)
-	_, err := r.core.ExecQuery(q)
+	_, err := r.core.DB.Exec("DELETE FROM subscriptions")
 	return err
 }

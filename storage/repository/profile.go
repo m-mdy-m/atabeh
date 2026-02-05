@@ -3,71 +3,64 @@ package repository
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/m-mdy-m/atabeh/storage"
-	"github.com/m-mdy-m/atabeh/storage/core"
 )
 
 func (r *Repo) CreateProfile(name, source, profileType string) (int64, error) {
-	q := core.InsertInto(core.TableProfiles).
-		Columns(
-			core.ProfileColName,
-			core.ProfileColSource,
-			core.ProfileColType,
-			core.ProfileColLastSynced,
-		).
-		Values(name, source, profileType, time.Now())
-
-	id, err := r.core.InsertQuery(q)
+	res, err := r.core.DB.Exec(
+		"INSERT INTO profiles (name, source, type, last_synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+		name, source, profileType)
 	if err != nil {
-		return 0, fmt.Errorf("create profile: %w", err)
+		return 0, err
 	}
-	return id, nil
+	return res.LastInsertId()
 }
 
 func (r *Repo) GetOrCreateProfile(name, source, profileType string) (int64, error) {
-
-	q := core.Select(core.ProfileColID).
-		From(core.TableProfiles).
-		Where(core.ProfileColSource+" = ?", source).
-		Limit(1)
-
-	sqlStr, args := q.Build()
-
 	var id int64
-	err := r.core.DB.QueryRow(sqlStr, args...).Scan(&id)
+	err := r.core.DB.QueryRow("SELECT id FROM profiles WHERE source = ?", source).Scan(&id)
 
 	if err == sql.ErrNoRows {
-
 		return r.CreateProfile(name, source, profileType)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("get profile: %w", err)
+		return 0, err
 	}
 
 	return id, nil
 }
 
-func (r *Repo) ListProfiles() ([]*storage.ProfileRow, error) {
-	q := core.Select(
-		core.ProfileColID,
-		core.ProfileColName,
-		core.ProfileColSource,
-		core.ProfileColType,
-		core.ProfileColConfigCount,
-		core.ProfileColAliveCount,
-		core.ProfileColLastSynced,
-		core.ProfileColCreatedAt,
-		core.ProfileColUpdatedAt,
-	).
-		From(core.TableProfiles).
-		OrderBy(core.ProfileColUpdatedAt + " DESC")
+func (r *Repo) GetProfile(id int) (*storage.ProfileRow, error) {
+	var p storage.ProfileRow
+	var lastSynced sql.NullString
 
-	sqlStr, args := q.Build()
-	rows, err := r.core.DB.Query(sqlStr, args...)
+	err := r.core.DB.QueryRow(`
+		SELECT id, name, source, type, config_count, alive_count, 
+		       last_synced_at, created_at, updated_at
+		FROM profiles WHERE id = ?`, id).Scan(
+		&p.ID, &p.Name, &p.Source, &p.Type,
+		&p.ConfigCount, &p.AliveCount,
+		&lastSynced, &p.CreatedAt, &p.UpdatedAt)
+
 	if err != nil {
-		return nil, fmt.Errorf("list profiles: %w", err)
+		return nil, err
+	}
+
+	if lastSynced.Valid {
+		p.LastSyncedAt = lastSynced.String
+	}
+
+	return &p, nil
+}
+
+func (r *Repo) ListProfiles() ([]*storage.ProfileRow, error) {
+	rows, err := r.core.DB.Query(`
+		SELECT id, name, source, type, config_count, alive_count,
+		       last_synced_at, created_at, updated_at
+		FROM profiles ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -79,10 +72,9 @@ func (r *Repo) ListProfiles() ([]*storage.ProfileRow, error) {
 		err := rows.Scan(
 			&p.ID, &p.Name, &p.Source, &p.Type,
 			&p.ConfigCount, &p.AliveCount,
-			&lastSynced, &p.CreatedAt, &p.UpdatedAt,
-		)
+			&lastSynced, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
-			return nil, fmt.Errorf("scan profile: %w", err)
+			return nil, err
 		}
 
 		if lastSynced.Valid {
@@ -93,58 +85,20 @@ func (r *Repo) ListProfiles() ([]*storage.ProfileRow, error) {
 	return profiles, rows.Err()
 }
 
-func (r *Repo) GetProfile(id int) (*storage.ProfileRow, error) {
-	q := core.Select(
-		core.ProfileColID,
-		core.ProfileColName,
-		core.ProfileColSource,
-		core.ProfileColType,
-		core.ProfileColConfigCount,
-		core.ProfileColAliveCount,
-		core.ProfileColLastSynced,
-		core.ProfileColCreatedAt,
-		core.ProfileColUpdatedAt,
-	).
-		From(core.TableProfiles).
-		Where(core.ProfileColID+" = ?", id).
-		Limit(1)
-
-	sqlStr, args := q.Build()
-
-	var p storage.ProfileRow
-	var lastSynced sql.NullString
-
-	err := r.core.DB.QueryRow(sqlStr, args...).Scan(
-		&p.ID, &p.Name, &p.Source, &p.Type,
-		&p.ConfigCount, &p.AliveCount,
-		&lastSynced, &p.CreatedAt, &p.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("get profile: %w", err)
-	}
-
-	if lastSynced.Valid {
-		p.LastSyncedAt = lastSynced.String
-	}
-
-	return &p, nil
-}
-
 func (r *Repo) UpdateProfileSyncTime(id int64) error {
-	q := core.Update(core.TableProfiles).
-		Set(core.ProfileColLastSynced, time.Now()).
-		Set(core.ProfileColUpdatedAt, time.Now()).
-		Where(core.ProfileColID+" = ?", id)
-
-	_, err := r.core.ExecQuery(q)
+	_, err := r.core.DB.Exec(
+		"UPDATE profiles SET last_synced_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?", id)
 	return err
 }
 
 func (r *Repo) DeleteProfile(id int) error {
-	q := core.DeleteFrom(core.TableProfiles).
-		Where(core.ProfileColID+" = ?", id)
-
-	_, err := r.core.ExecQuery(q)
-	return err
+	res, err := r.core.DB.Exec("DELETE FROM profiles WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("profile %d not found", id)
+	}
+	return nil
 }

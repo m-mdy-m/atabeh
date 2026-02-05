@@ -31,6 +31,12 @@ func Open(path string) (*RepoDatabase, error) {
 		return nil, fmt.Errorf("storage: ping db: %w", err)
 	}
 
+	_, err = conn.Exec("PRAGMA foreign_keys = ON")
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("storage: enable foreign keys: %w", err)
+	}
+
 	coreRepo := core.NewWithPath(conn, abs)
 
 	db := &RepoDatabase{
@@ -68,7 +74,7 @@ func (db *RepoDatabase) migrate() error {
 			updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 
-		-- Configs table with profile_id
+		-- Configs table with CASCADE DELETE
 		CREATE TABLE IF NOT EXISTS configs (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			profile_id INTEGER NOT NULL,
