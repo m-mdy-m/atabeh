@@ -43,14 +43,3 @@ type NormalizedConfig struct {
 	Security  string            `json:"security"`
 	Extra     map[string]string `json:"extra,omitempty"`
 }
-
-type PingResult struct {
-	Config      *NormalizedConfig `json:"config"`
-	Reachable   bool              `json:"reachable"`
-	Attempts    int               `json:"attempts"`
-	Successes   int               `json:"successes"`
-	LossPercent int               `json:"loss_percent"`
-	AvgMs       int64             `json:"avg_ms"`
-	MinMs       int64             `json:"min_ms"`
-	MaxMs       int64             `json:"max_ms"`
-}
