@@ -35,8 +35,11 @@ type Parser interface {
 
 var registry = map[common.Kind]Parser{}
 
-func Register(p Parser)                  { registry[p.Protocol()] = p }
 func GetParser(proto common.Kind) Parser { return registry[proto] }
+
+func Register(p Parser) {
+	registry[p.Protocol()] = p
+}
 
 func ParseURIs(uris []string) ([]*common.RawConfig, error) {
 	var configs []*common.RawConfig
@@ -44,39 +47,33 @@ func ParseURIs(uris []string) ([]*common.RawConfig, error) {
 	for _, uri := range uris {
 		proto := detectProtocol(uri)
 		if proto == "" {
-			logger.Warn("parser", "unknown scheme, skipping: "+truncate(uri, 60))
+			logger.Warn("parser", "unknown scheme: "+trunc(uri, 60))
 			continue
 		}
 
 		p := registry[proto]
 		if p == nil {
-			logger.Warn("parser", "no parser registered for "+string(proto))
+			logger.Warn("parser", "no parser for "+string(proto))
 			continue
 		}
 
 		cfg, err := p.ParseURI(uri)
 		if err != nil {
-			logger.Warn("parser", string(proto)+" parse error: "+err.Error())
+			logger.Warn("parser", string(proto)+" error: "+err.Error())
 			continue
 		}
+
 		if cfg.Extra == nil {
 			cfg.Extra = map[string]string{}
 		}
 		cfg.Extra["raw_uri"] = uri
 		cfg.Source = "uri"
+
 		configs = append(configs, cfg)
 	}
 
-	logger.Debug("parser", "parsed "+strconv.Itoa(len(configs))+" configs from "+strconv.Itoa(len(uris))+" URIs")
+	logger.Debug("parser", "parsed "+strconv.Itoa(len(configs))+" from "+strconv.Itoa(len(uris))+" URIs")
 	return configs, nil
-}
-
-func ParseText(text string) ([]*common.RawConfig, error) {
-	uris := Extract(text)
-	if len(uris) == 0 {
-		return nil, nil
-	}
-	return ParseURIs(uris)
 }
 
 func detectProtocol(uri string) common.Kind {
@@ -94,7 +91,7 @@ func detectProtocol(uri string) common.Kind {
 	}
 }
 
-func truncate(s string, n int) string {
+func trunc(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s

@@ -1,12 +1,16 @@
 package parsers
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
 	"github.com/m-mdy-m/atabeh/internal/logger"
 )
+
+type MixedParseResult struct {
+	Subscriptions []string
+	DirectConfigs []*common.RawConfig
+}
 
 func ParseMixedContent(text string) (*MixedParseResult, error) {
 	result := &MixedParseResult{
@@ -33,11 +37,6 @@ func ParseMixedContent(text string) (*MixedParseResult, error) {
 	return result, nil
 }
 
-type MixedParseResult struct {
-	Subscriptions []string
-	DirectConfigs []*common.RawConfig
-}
-
 func extractSubscriptionURLs(text string) []string {
 	var subs []string
 	seen := make(map[string]bool)
@@ -46,7 +45,7 @@ func extractSubscriptionURLs(text string) []string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		if isSubscriptionURL(line) {
+		if IsSubscriptionURL(line) {
 			if !seen[line] {
 				subs = append(subs, line)
 				seen[line] = true
@@ -57,7 +56,7 @@ func extractSubscriptionURLs(text string) []string {
 	return subs
 }
 
-func isSubscriptionURL(s string) bool {
+func IsSubscriptionURL(s string) bool {
 	s = strings.ToLower(strings.TrimSpace(s))
 
 	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
@@ -85,102 +84,33 @@ func isSubscriptionURL(s string) bool {
 	return false
 }
 
-func ExtractProfileName(source string) string {
-
-	source = strings.TrimSpace(source)
-
-	if strings.HasPrefix(source, "http") {
-
-		if idx := strings.LastIndex(source, "#"); idx != -1 && idx < len(source)-1 {
-			name := source[idx+1:]
-			if name != "" {
-				return cleanProfileName(name)
-			}
-		}
-
-		parts := strings.Split(source, "/")
-		for i := len(parts) - 1; i >= 0; i-- {
-			part := parts[i]
-			if part != "" && part != "raw" && part != "main" && !strings.HasPrefix(part, "http") {
-
-				name := strings.TrimSuffix(part, ".txt")
-				name = strings.TrimSuffix(name, ".conf")
-				name = strings.TrimSuffix(name, ".config")
-				if name != "" {
-					return cleanProfileName(name)
-				}
-			}
-		}
-
-		if strings.Contains(source, "://") {
-			domainPart := strings.Split(strings.Split(source, "://")[1], "/")[0]
-			parts := strings.Split(domainPart, ".")
-			if len(parts) >= 2 {
-				return cleanProfileName(parts[0])
-			}
-		}
-	}
-
-	if strings.Contains(source, "://") {
-
-		if idx := strings.LastIndex(source, "#"); idx != -1 && idx < len(source)-1 {
-			name := source[idx+1:]
-			if name != "" {
-				return cleanProfileName(name)
-			}
-		}
-	}
-
-	return "Unknown Profile"
-}
-
-func cleanProfileName(name string) string {
-	name = strings.TrimSpace(name)
-
-	name = strings.ReplaceAll(name, "%20", " ")
-	name = strings.ReplaceAll(name, "%D8%B3", "س")
-	name = strings.ReplaceAll(name, "%D8%B1", "ر")
-
-	prefixes := []string{"@", "subscription_", "config_", "proxy_"}
-	for _, prefix := range prefixes {
-		name = strings.TrimPrefix(name, prefix)
-	}
-
-	if len(name) > 0 {
-		name = strings.ToUpper(name[:1]) + name[1:]
-	}
-
-	return name
-}
-
 func FetchAndParseAll(source string) ([]*common.RawConfig, error) {
-	logger.Infof("parser", "fetching and parsing: %s", source)
+	logger.Infof("parser", "fetching: %s", truncSource(source))
 
 	if !strings.HasPrefix(source, "http") {
-		return ParseText(source)
+		return parseRawText(source)
 	}
 
 	text, err := fetchWithRetry(source)
 	if err != nil {
-		return nil, fmt.Errorf("fetch: %w", err)
+		return nil, err
 	}
 
 	text = tryDecodeWholeBody(text)
 
 	mixed, err := ParseMixedContent(text)
 	if err != nil {
-		logger.Warnf("parser", "parse mixed content: %v", err)
+		logger.Warnf("parser", "parse mixed: %v", err)
 	}
 
 	allConfigs := make([]*common.RawConfig, 0)
-
 	allConfigs = append(allConfigs, mixed.DirectConfigs...)
 
 	for _, subURL := range mixed.Subscriptions {
-		logger.Infof("parser", "fetching nested subscription: %s", subURL)
+		logger.Infof("parser", "fetching nested: %s", subURL)
 		subText, err := fetchWithRetry(subURL)
 		if err != nil {
-			logger.Warnf("parser", "fetch nested sub %s: %v", subURL, err)
+			logger.Warnf("parser", "fetch nested %s: %v", subURL, err)
 			continue
 		}
 
@@ -190,13 +120,28 @@ func FetchAndParseAll(source string) ([]*common.RawConfig, error) {
 		if len(subURIs) > 0 {
 			subConfigs, err := ParseURIs(subURIs)
 			if err != nil {
-				logger.Warnf("parser", "parse nested sub %s: %v", subURL, err)
+				logger.Warnf("parser", "parse nested %s: %v", subURL, err)
 				continue
 			}
 			allConfigs = append(allConfigs, subConfigs...)
 		}
 	}
 
-	logger.Infof("parser", "total configs extracted: %d", len(allConfigs))
+	logger.Infof("parser", "extracted %d total configs", len(allConfigs))
 	return allConfigs, nil
+}
+
+func parseRawText(text string) ([]*common.RawConfig, error) {
+	uris := Extract(text)
+	if len(uris) == 0 {
+		return nil, nil
+	}
+	return ParseURIs(uris)
+}
+
+func truncSource(s string) string {
+	if len(s) > 60 {
+		return s[:57] + "..."
+	}
+	return s
 }
