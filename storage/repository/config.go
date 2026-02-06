@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/m-mdy-m/atabeh/internal/common"
+	"github.com/m-mdy-m/atabeh/internal/tester"
 	"github.com/m-mdy-m/atabeh/storage"
 	"github.com/m-mdy-m/atabeh/storage/core"
 )
@@ -174,14 +175,14 @@ func (r *Repo) CountConfigsByProfile(profileID int) (int, error) {
 	return n, err
 }
 
-func (r *Repo) UpdateConfigPingResult(id int, result *common.PingResult) error {
+func (r *Repo) UpdateConfigPingResult(id int, result *tester.Result) error {
 	_, err := r.core.DB.Exec(
 		"UPDATE configs SET last_ping=?, is_alive=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
 		result.AvgMs, core.BoolToInt(result.Reachable), id)
 	return err
 }
 
-func (r *Repo) UpdateConfigPingBatch(results map[int]*common.PingResult) error {
+func (r *Repo) UpdateConfigPingBatch(results map[int]*tester.Result) error {
 	return core.WithTx(r.core.DB, func(tx *sql.Tx) error {
 		stmt, err := tx.Prepare(
 			"UPDATE configs SET last_ping=?, is_alive=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
