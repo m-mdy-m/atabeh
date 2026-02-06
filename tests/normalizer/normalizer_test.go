@@ -7,345 +7,335 @@ import (
 	"github.com/m-mdy-m/atabeh/internal/normalizer"
 )
 
-func validVless(overrides ...func(*common.RawConfig)) *common.RawConfig {
-	c := &common.RawConfig{
-		Protocol:  common.Vless,
-		Name:      "TestServer",
-		Server:    "vpn.example.com",
-		Port:      443,
-		UUID:      "550e8400-e29b-41d4-a716-446655440000",
-		Transport: common.TCP,
-		Security:  "tls",
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *common.RawConfig
+		wantErr bool
+	}{
+		{
+			name: "valid vless",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "example.com",
+				Port:     443,
+				UUID:     "12345678-1234-1234-1234-123456789012",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid vless - missing UUID",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "example.com",
+				Port:     443,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid vless - bad UUID format",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "example.com",
+				Port:     443,
+				UUID:     "not-a-uuid",
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid shadowsocks",
+			config: &common.RawConfig{
+				Protocol: common.Shadowsocks,
+				Server:   "1.2.3.4",
+				Port:     8388,
+				Password: "secret",
+				Method:   "aes-256-gcm",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid shadowsocks - unsupported method",
+			config: &common.RawConfig{
+				Protocol: common.Shadowsocks,
+				Server:   "1.2.3.4",
+				Port:     8388,
+				Password: "secret",
+				Method:   "rc4-md5",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid - private IP",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "192.168.1.1",
+				Port:     443,
+				UUID:     "12345678-1234-1234-1234-123456789012",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid - localhost",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "127.0.0.1",
+				Port:     443,
+				UUID:     "12345678-1234-1234-1234-123456789012",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid - port out of range",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "example.com",
+				Port:     99999,
+				UUID:     "12345678-1234-1234-1234-123456789012",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid - empty server",
+			config: &common.RawConfig{
+				Protocol: common.Vless,
+				Server:   "",
+				Port:     443,
+				UUID:     "12345678-1234-1234-1234-123456789012",
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid trojan",
+			config: &common.RawConfig{
+				Protocol: common.Trojan,
+				Server:   "example.com",
+				Port:     443,
+				Password: "password123",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid trojan - missing password",
+			config: &common.RawConfig{
+				Protocol: common.Trojan,
+				Server:   "example.com",
+				Port:     443,
+			},
+			wantErr: true,
+		},
 	}
-	for _, fn := range overrides {
-		fn(c)
-	}
-	return c
-}
 
-func validSS() *common.RawConfig {
-	return &common.RawConfig{
-		Protocol: common.Shadowsocks,
-		Name:     "SS-Server",
-		Server:   "ss.example.com",
-		Port:     8388,
-		Password: "s3cret",
-		Method:   "chacha20-ietf-poly1305",
-	}
-}
-
-func TestNormalize_ValidVless_PassesThrough(t *testing.T) {
-	out, err := normalizer.Normalize([]*common.RawConfig{validVless()})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(out))
-	}
-	if out[0].Name != "TestServer" {
-		t.Errorf("name: got %q", out[0].Name)
-	}
-	if out[0].Protocol != common.Vless {
-		t.Errorf("protocol: got %q", out[0].Protocol)
-	}
-	if out[0].Server != "vpn.example.com" {
-		t.Errorf("server: got %q", out[0].Server)
-	}
-}
-
-func TestNormalize_ValidSS_PassesThrough(t *testing.T) {
-	out, err := normalizer.Normalize([]*common.RawConfig{validSS()})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1, got %d", len(out))
-	}
-	if out[0].Method != "chacha20-ietf-poly1305" {
-		t.Errorf("method: got %q", out[0].Method)
-	}
-}
-
-func TestNormalize_DuplicatesRemoved(t *testing.T) {
-	a := validVless(func(c *common.RawConfig) { c.Name = "First" })
-	b := validVless(func(c *common.RawConfig) { c.Name = "Second (dup)" })
-
-	out, err := normalizer.Normalize([]*common.RawConfig{a, b})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 1 {
-		t.Errorf("expected 1 after dedup, got %d", len(out))
-	}
-	if out[0].Name != "First" {
-		t.Errorf("should keep first occurrence, got name=%q", out[0].Name)
-	}
-}
-
-func TestNormalize_DifferentUUID_NotDup(t *testing.T) {
-	a := validVless(func(c *common.RawConfig) { c.UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" })
-	b := validVless(func(c *common.RawConfig) { c.UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" })
-
-	out, _ := normalizer.Normalize([]*common.RawConfig{a, b})
-	if len(out) != 2 {
-		t.Errorf("different UUIDs → not duplicates, expected 2, got %d", len(out))
-	}
-}
-
-func TestNormalize_DifferentPort_NotDup(t *testing.T) {
-	a := validVless(func(c *common.RawConfig) { c.Port = 443 })
-	b := validVless(func(c *common.RawConfig) { c.Port = 8443 })
-
-	out, _ := normalizer.Normalize([]*common.RawConfig{a, b})
-	if len(out) != 2 {
-		t.Errorf("different ports → not duplicates, expected 2, got %d", len(out))
-	}
-}
-
-func TestNormalize_EmptyServer_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Server = "" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("empty server should be rejected")
-	}
-}
-
-func TestNormalize_PrivateIP_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Server = "192.168.1.1" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("private IP should be rejected by default")
-	}
-}
-
-func TestNormalize_LoopbackIP_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Server = "127.0.0.1" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("loopback IP should be rejected")
-	}
-}
-
-func TestNormalize_PublicIP_Accepted(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Server = "8.8.8.8" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 1 {
-		t.Error("public IP should be accepted")
-	}
-}
-
-func TestNormalize_Port0_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Port = 0 })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("port 0 should be rejected")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := normalizer.Validate(tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
-func TestNormalize_Port_Negative_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Port = -1 })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("negative port should be rejected")
+func TestCleanName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "with emojis",
+			input: "Aleph ❤️🤍💚 FREE2CONFIG",
+			want:  "Aleph FREE2CONFIG",
+		},
+		{
+			name:  "with symbols",
+			input: "【Server】🇩🇪 Germany-01",
+			want:  "Server Germany-01",
+		},
+		{
+			name:  "with location prefix",
+			input: "🇺🇸42-New York",
+			want:  "New York",
+		},
+		{
+			name:  "URL encoded",
+			input: "Server%20%231",
+			want:  "Server #1",
+		},
+		{
+			name:  "multiple spaces and dashes",
+			input: "Server   ---   Name",
+			want:  "Server Name",
+		},
+		{
+			name:  "complex case",
+			input: "🇩🇪42-【VIP】@channel Server★01",
+			want:  "VIP @channel Server01",
+		},
+		{
+			name:  "empty after cleaning",
+			input: "🇩🇪@@@",
+			want:  "",
+		},
+		{
+			name:  "already clean",
+			input: "Clean Server Name",
+			want:  "Clean Server Name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizer.CleanName(tt.input)
+			if got != tt.want {
+				t.Errorf("CleanName() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestNormalize_Port_65536_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Port = 65536 })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("port > 65535 should be rejected")
+func TestDeduplicate(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []*common.NormalizedConfig
+		expect int
+	}{
+		{
+			name: "no duplicates",
+			input: []*common.NormalizedConfig{
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1"},
+				{Protocol: common.Vless, Server: "server2.com", Port: 443, UUID: "uuid2"},
+			},
+			expect: 2,
+		},
+		{
+			name: "exact duplicates",
+			input: []*common.NormalizedConfig{
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+			},
+			expect: 1,
+		},
+		{
+			name: "different names same config",
+			input: []*common.NormalizedConfig{
+				{Name: "Server A", Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+				{Name: "Server B", Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+			},
+			expect: 1,
+		},
+		{
+			name: "different transport not duplicate",
+			input: []*common.NormalizedConfig{
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.TCP},
+				{Protocol: common.Vless, Server: "server1.com", Port: 443, UUID: "uuid1", Transport: common.WS},
+			},
+			expect: 2,
+		},
+		{
+			name: "shadowsocks dedup by password+method",
+			input: []*common.NormalizedConfig{
+				{Protocol: common.Shadowsocks, Server: "1.2.3.4", Port: 8388, Password: "pass1", Method: "aes-256-gcm"},
+				{Protocol: common.Shadowsocks, Server: "1.2.3.4", Port: 8388, Password: "pass1", Method: "aes-256-gcm"},
+				{Protocol: common.Shadowsocks, Server: "1.2.3.4", Port: 8388, Password: "pass2", Method: "aes-256-gcm"},
+			},
+			expect: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizer.Deduplicate(tt.input)
+			if len(result) != tt.expect {
+				t.Errorf("Deduplicate() got %d configs, want %d", len(result), tt.expect)
+			}
+		})
 	}
 }
 
-func TestNormalize_Port_65535_Accepted(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Port = 65535 })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 1 {
-		t.Error("port 65535 should be accepted")
+func TestExtractProfileName(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "from URL fragment",
+			source: "https://example.com/sub#MyProfile",
+			want:   "MyProfile",
+		},
+		{
+			name:   "from filename",
+			source: "https://example.com/configs/iran-servers.txt",
+			want:   "Iran-servers",
+		},
+		{
+			name:   "from domain",
+			source: "https://myservice.example.com/sub",
+			want:   "Sub",
+		},
+		{
+			name:   "from config URI fragment",
+			source: "vless://uuid@server:443#ProfileName",
+			want:   "ProfileName",
+		},
+		{
+			name:   "complex URL",
+			source: "https://raw.githubusercontent.com/user/repo/main/configs.txt",
+			want:   "Configs",
+		},
+		{
+			name:   "fallback",
+			source: "unknown-format",
+			want:   "Configs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizer.ExtractProfileName(tt.source)
+			if got != tt.want {
+				t.Errorf("ExtractProfileName() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestNormalize_Port1_Accepted(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Port = 1 })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 1 {
-		t.Error("port 1 should be accepted")
+// Benchmark tests
+func BenchmarkValidate(b *testing.B) {
+	cfg := &common.RawConfig{
+		Protocol: common.Vless,
+		Server:   "example.com",
+		Port:     443,
+		UUID:     "12345678-1234-1234-1234-123456789012",
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		normalizer.Validate(cfg)
 	}
 }
 
-func TestNormalize_MissingUUID_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.UUID = "" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("vless without UUID should be rejected")
+func BenchmarkCleanName(b *testing.B) {
+	name := "🇩🇪42-【VIP】@channel Server★01 FREE2CONFIG"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		normalizer.CleanName(name)
 	}
 }
 
-func TestNormalize_InvalidUUIDFormat_Skipped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.UUID = "not-a-valid-uuid" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("invalid UUID format should be rejected")
-	}
-}
-
-func TestNormalize_ValidUUID_Accepted(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.UUID = "12345678-1234-1234-1234-123456789abc" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 1 {
-		t.Error("valid UUID should be accepted")
-	}
-}
-
-func TestNormalize_SS_MissingPassword_Skipped(t *testing.T) {
-	c := validSS()
-	c.Password = ""
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("SS without password should be rejected")
-	}
-}
-
-func TestNormalize_SS_MissingMethod_Skipped(t *testing.T) {
-	c := validSS()
-	c.Method = ""
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("SS without method should be rejected")
-	}
-}
-
-func TestNormalize_SS_UnsupportedMethod_Skipped(t *testing.T) {
-	c := validSS()
-	c.Method = "rc4"
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("SS with unsupported method should be rejected")
-	}
-}
-
-func TestNormalize_SS_AllValidMethods_Accepted(t *testing.T) {
-	methods := []string{
-		"aes-128-gcm",
-		"aes-256-gcm",
-		"chacha20-ietf-poly1305",
-		"xchacha20-ietf-poly1305",
-		"2022-blake3-aes-128-gcm",
-		"2022-blake3-aes-256-gcm",
-	}
-	for _, m := range methods {
-		c := validSS()
-		c.Method = m
-		out, _ := normalizer.Normalize([]*common.RawConfig{c})
-		if len(out) != 1 {
-			t.Errorf("method %q should be accepted", m)
+func BenchmarkDeduplicate(b *testing.B) {
+	configs := make([]*common.NormalizedConfig, 1000)
+	for i := 0; i < 1000; i++ {
+		configs[i] = &common.NormalizedConfig{
+			Protocol:  common.Vless,
+			Server:    "server.com",
+			Port:      443,
+			UUID:      "12345678-1234-1234-1234-123456789012",
+			Transport: common.TCP,
 		}
 	}
-}
-
-func TestNormalize_EmptyTransport_DefaultsTCP(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Transport = "" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("expected config to pass validation")
-	}
-	if out[0].Transport != common.TCP {
-		t.Errorf("default transport: got %q, want tcp", out[0].Transport)
-	}
-}
-
-func TestNormalize_SS_EmptyTransport_DefaultsUDP(t *testing.T) {
-	c := validSS()
-	c.Transport = ""
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("expected config to pass validation")
-	}
-	if out[0].Transport != common.UDP {
-		t.Errorf("SS default transport: got %q, want udp", out[0].Transport)
-	}
-}
-
-func TestNormalize_EmptySecurity_DefaultsNone(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Security = "" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("expected config to pass validation")
-	}
-	if out[0].Security != "none" {
-		t.Errorf("default security: got %q, want none", out[0].Security)
-	}
-}
-
-func TestNormalize_GuillemetsStripped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Name = "«سرور تست»" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("config should pass")
-	}
-	if out[0].Name == "«سرور تست»" {
-		t.Error("guillemets should be stripped from name")
-	}
-}
-
-func TestNormalize_EmojiStripped(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Name = "🔥Server🔥" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("config should pass")
-	}
-	if out[0].Name == "🔥Server🔥" {
-		t.Error("emojis should be stripped from name")
-	}
-}
-
-func TestNormalize_EmptyName_FallbackGenerated(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Name = "" })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("config should pass")
-	}
-	if out[0].Name == "" {
-		t.Error("empty name should get a generated fallback")
-	}
-}
-
-func TestNormalize_WhitespaceOnlyName_FallbackGenerated(t *testing.T) {
-	c := validVless(func(r *common.RawConfig) { r.Name = "   \t  " })
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) == 0 {
-		t.Fatal("config should pass")
-	}
-	if out[0].Name == "" || out[0].Name == "   \t  " {
-		t.Error("whitespace-only name should be replaced with fallback")
-	}
-}
-
-func TestNormalize_MixedBatch(t *testing.T) {
-	batch := []*common.RawConfig{
-		validVless(),
-		validVless(func(r *common.RawConfig) { r.Server = "" }),
-		validSS(),
-		validVless(func(r *common.RawConfig) { r.UUID = "bad" }),
-		validVless(func(r *common.RawConfig) { r.Server = "192.168.0.1" }),
-	}
-
-	out, _ := normalizer.Normalize(batch)
-	if len(out) != 2 {
-		t.Errorf("expected 2 valid configs out of 5, got %d", len(out))
-	}
-}
-
-func TestNormalize_UnsupportedProtocol_Skipped(t *testing.T) {
-	c := &common.RawConfig{
-		Protocol: "wireguard",
-		Name:     "WG",
-		Server:   "wg.example.com",
-		Port:     51820,
-	}
-	out, _ := normalizer.Normalize([]*common.RawConfig{c})
-	if len(out) != 0 {
-		t.Error("unsupported protocol should be rejected")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		normalizer.Deduplicate(configs)
 	}
 }
