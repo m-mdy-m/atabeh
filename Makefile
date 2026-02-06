@@ -1,5 +1,4 @@
 SHELL := /bin/bash
-set -euo pipefail
 
 VERSION     ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -21,7 +20,6 @@ help:
 	@echo ""
 	@echo "  make build            Build the binary (bin/atabeh)"
 	@echo "  make test             Run all unit tests"
-	@echo "  make test-race        Run tests with the race detector"
 	@echo "  make lint             Run go vet"
 	@echo "  make fmt              Check & fix formatting"
 	@echo "  make clean            Remove build artefacts"
@@ -29,8 +27,6 @@ help:
 	@echo "  make version          Print current version"
 	@echo "  make tag              Create a new git tag (interactive)"
 	@echo "  make release          Tag + push (interactive)"
-	@echo "  make docker-build     Build the Docker image"
-	@echo "  make docker-test      Run tests inside Docker"
 	@echo "  make deps             Download dependencies"
 	@echo "  make tidy             go mod tidy"
 
@@ -55,17 +51,6 @@ test: deps
 	@echo "Running tests …"
 	go test -count=1 -v ./tests/...
 
-test-race: deps
-	@echo "Running tests with race detector …"
-	go test -race -count=1 -v ./tests/...
-
-test-coverage: deps
-	go test -count=1 -coverprofile=coverage.out ./tests/...
-	go tool cover -func=coverage.out
-
-# ---------------------------------------------------------------------------
-# Lint & format
-# ---------------------------------------------------------------------------
 lint: deps
 	@echo "Running go vet …"
 	go vet ./...
@@ -74,23 +59,14 @@ fmt:
 	@echo "Checking formatting …"
 	gofmt -l -d .
 
-# ---------------------------------------------------------------------------
-# Clean
-# ---------------------------------------------------------------------------
 clean:
 	@echo "Cleaning …"
 	rm -rf $(OUT_DIR) coverage.out
 
-# ---------------------------------------------------------------------------
-# Install (copies binary to GOPATH/bin)
-# ---------------------------------------------------------------------------
 install: build
 	@echo "Installing to \$GOPATH/bin …"
 	cp $(OUT_DIR)/$(BINARY) $$(go env GOPATH)/bin/
 
-# ---------------------------------------------------------------------------
-# Version & tagging
-# ---------------------------------------------------------------------------
 version:
 	@echo "version   : $(VERSION)"
 	@echo "commit    : $(GIT_COMMIT)"
@@ -122,19 +98,6 @@ release:
 	echo ""; \
 	echo "Release v$$ver published."
 
-# ---------------------------------------------------------------------------
-# Docker
-# ---------------------------------------------------------------------------
-docker-build:
-	docker build -t atabeh:$(VERSION) .
-
-docker-test:
-	docker build --target test -t atabeh-test:latest .
-	docker run --rm atabeh-test:latest
-
-# ---------------------------------------------------------------------------
-# Module management
-# ---------------------------------------------------------------------------
 deps:
 	go mod download
 
