@@ -3,10 +3,10 @@ package command
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/m-mdy-m/atabeh/internal/common"
 	"github.com/m-mdy-m/atabeh/internal/logger"
 	"github.com/m-mdy-m/atabeh/internal/normalizer"
 	"github.com/m-mdy-m/atabeh/internal/parsers"
@@ -15,137 +15,119 @@ import (
 
 func (c *CLI) AddCommand() *cobra.Command {
 	var (
-		testFirst bool
-		profile   string
+		testFirst  bool
+		testConfig TestConfig
+		profile    string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add <config_or_text>",
-		Short: "Add config(s) from URI or mixed text",
-		Long: `Parses config(s) from URI, text file, or mixed content and stores them.
+		Use:   "add <source>",
+		Short: "Add configs from any source (URL, file, or raw text)",
+		Long: `Universal config ingestion - handles subscriptions, files, and raw configs.
 
-Supports:
-  - Single config URI
-  - Multiple config URIs (space or newline separated)
-  - Mixed content (configs + subscription URLs)
-  - Text files with configs
+Source types:
+  - Subscription URL (http://... or https://...)
+  - Local file (@path/to/file.txt)
+  - Raw config URIs or mixed content
 
 Examples:
-  atabeh add "vless://uuid@server:443?security=tls#MyServer"
-  atabeh add "vless://... vmess://..." --test-first
-  atabeh add @file_with_configs.txt --profile "My Configs"`,
+  atabeh add https://example.com/subscription
+  atabeh add @configs.txt
+  atabeh add "vless://..." --test-first
+  atabeh add https://... --test-first --attempts 5`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
-			input := args[0]
+			if len(args) == 0 {
+				return fmt.Errorf("missing source argument")
+			}
+			source := args[0]
 
-			// Read from file if starts with @
-			if len(input) > 0 && input[0] == '@' {
-				content, err := os.ReadFile(input[1:])
+			if strings.HasPrefix(source, "@") {
+				content, err := os.ReadFile(source[1:])
 				if err != nil {
 					return fmt.Errorf("read file: %w", err)
 				}
-				input = string(content)
+				source = string(content)
 			}
 
-			// Parse mixed content
-			mixed, err := parsers.ParseMixedContent(input)
+			logger.Infof("add", "processing: %s", truncSource(source, 60))
+
+			rawConfigs, err := parsers.FetchAndParseAll(source)
 			if err != nil {
-				return fmt.Errorf("parse: %w", err)
+				return fmt.Errorf("fetch/parse: %w", err)
 			}
 
-			allRaw := make([]*common.RawConfig, 0)
-			allRaw = append(allRaw, mixed.DirectConfigs...)
-
-			// Fetch from nested subscriptions
-			for _, subURL := range mixed.Subscriptions {
-				logger.Infof("add", "fetching subscription: %s", subURL)
-				subConfigs, err := parsers.FetchAndParseAll(subURL)
-				if err != nil {
-					logger.Warnf("add", "fetch sub %s: %v", subURL, err)
-					continue
-				}
-				allRaw = append(allRaw, subConfigs...)
+			if len(rawConfigs) == 0 {
+				return fmt.Errorf("no configs found")
 			}
 
-			if len(allRaw) == 0 {
-				return fmt.Errorf("no valid configs found")
-			}
+			logger.Infof("add", "fetched %d raw configs", len(rawConfigs))
 
-			logger.Infof("add", "found %d raw configs", len(allRaw))
-
-			// Normalize
-			configs, err := normalizer.Normalize(allRaw)
+			configs, err := normalizer.Normalize(rawConfigs)
 			if err != nil {
 				return fmt.Errorf("normalize: %w", err)
 			}
-			logger.Infof("add", "normalized to %d configs", len(configs))
+
+			logger.Infof("add", "normalized to %d unique configs", len(configs))
 
 			if len(configs) == 0 {
-				return fmt.Errorf("all configs failed validation")
+				return fmt.Errorf("all configs invalid or duplicates")
 			}
 
-			// Test first if requested
 			if testFirst {
-				logger.Infof("add", "testing configs...")
-				configs = testAndFilterConfigs(configs, 20)
+				logger.Infof("add", "testing before save...")
+				configs = testAndFilter(configs, testConfig)
 				if len(configs) == 0 {
 					return fmt.Errorf("no configs passed tests")
 				}
-				logger.Infof("add", "%d configs passed tests", len(configs))
+				logger.Infof("add", "%d configs passed", len(configs))
 			}
 
-			// Determine profile name
 			profileName := profile
 			if profileName == "" {
-				if len(configs) == 1 {
-					profileName = configs[0].Name
-				} else {
-					profileName = configs[len(configs)-1].Name
-				}
+				profileName = normalizer.ExtractProfileName(source)
 			}
 
-			// Create or get profile
-			source := "manual"
-			if len(mixed.Subscriptions) > 0 {
-				source = mixed.Subscriptions[0]
+			profileSource := source
+			if isURL(source) {
+				profileSource = source
+			} else {
+				profileSource = "manual"
 			}
 
 			profileType := "manual"
-			if len(mixed.Subscriptions) > 0 && len(mixed.DirectConfigs) > 0 {
-				profileType = "mixed"
-			} else if len(mixed.Subscriptions) > 0 {
+			if isURL(source) {
 				profileType = "subscription"
 			}
 
-			profileID, err := repo.GetOrCreateProfile(profileName, source, profileType)
+			profileID, err := repo.GetOrCreateProfile(profileName, profileSource, profileType)
 			if err != nil {
-				return fmt.Errorf("create profile: %w", err)
+				return fmt.Errorf("profile: %w", err)
 			}
 
-			// Insert configs
-			inserted := 0
-			for _, cfg := range configs {
-				_, isNew, err := repo.InsertConfigOrSkip(cfg, profileID)
-				if err != nil {
-					logger.Warnf("add", "insert %q: %v", cfg.Name, err)
-					continue
-				}
-				if isNew {
-					inserted++
-				}
+			inserted, err := repo.InsertConfigBatch(configs, profileID)
+			if err != nil {
+				return fmt.Errorf("insert: %w", err)
 			}
 
 			total, _ := repo.CountConfigsByProfile(int(profileID))
-			fmt.Printf("\n  Profile: %s\n", profileName)
-			fmt.Printf("  Added:   %d new config(s)\n", inserted)
-			fmt.Printf("  Skipped: %d duplicate(s)\n", len(configs)-inserted)
-			fmt.Printf("  Total:   %d in profile\n\n", total)
+
+			fmt.Printf("\n  Profile:  %s\n", profileName)
+			fmt.Printf("  Type:     %s\n", profileType)
+			fmt.Printf("  Added:    %d new\n", inserted)
+			fmt.Printf("  Skipped:  %d duplicates\n", len(configs)-inserted)
+			fmt.Printf("  Total:    %d configs\n\n", total)
 
 			return nil
 		}),
 	}
 
-	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test configs before saving")
-	cmd.Flags().StringVar(&profile, "profile", "", "profile name (default: last config name)")
+	cmd.Flags().BoolVar(&testFirst, "test-first", false, "test before saving")
+	cmd.Flags().StringVar(&profile, "profile", "", "custom profile name")
+	cmd.Flags().IntVar(&testConfig.Attempts, "attempts", 3, "test attempts per config")
+	cmd.Flags().IntVar(&testConfig.Concurrent, "concurrent", 20, "concurrent tests")
+	cmd.Flags().IntVar(&testConfig.TimeoutSec, "timeout", 5, "timeout in seconds")
+	cmd.Flags().IntVar(&testConfig.StabilityWindow, "stability-window", 0, "stability test duration (sec)")
+
 	return cmd
 }

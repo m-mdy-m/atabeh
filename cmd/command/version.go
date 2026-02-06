@@ -7,15 +7,23 @@ import (
 )
 
 var (
-	Version   = "dev"
-	GitCommit = "unknown"
+	Version   = "0.2.0"
+	GitCommit = "dev"
 	BuildDate = "unknown"
 )
 
-var VersionCommand = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("atabeh %s (commit %s, built %s)\n", Version, GitCommit, BuildDate)
-	},
+func VersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("atabeh %s\n", Version)
+			if GitCommit != "dev" {
+				fmt.Printf("  commit: %s\n", GitCommit)
+			}
+			if BuildDate != "unknown" {
+				fmt.Printf("  built:  %s\n", BuildDate)
+			}
+		},
+	}
 }

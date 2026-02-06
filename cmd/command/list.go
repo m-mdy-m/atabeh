@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -13,70 +14,52 @@ import (
 
 func (c *CLI) ListCommand() *cobra.Command {
 	var (
-		proto     string
+		profiles  bool
+		protocol  string
 		aliveOnly bool
 		profileID int
-		grouped   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List configs or profiles",
-		Long: `Shows configs, optionally grouped by profile.
+		Long: `List configurations or profiles with various filters.
 
 Examples:
-  atabeh list
-  atabeh list --grouped
-  atabeh list --profile 1
-  atabeh list --protocol vless
-  atabeh list --alive`,
+  atabeh list                    # list all configs
+  atabeh list --profiles         # list profiles
+  atabeh list --profile 1        # list configs in profile 1
+  atabeh list --alive            # list only working configs
+  atabeh list --protocol vless   # filter by protocol`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
-			if grouped {
-				return listGrouped(repo)
+			if profiles {
+				return listProfiles(repo)
 			}
 
 			if profileID > 0 {
 				return listByProfile(repo, profileID)
 			}
 
-			var configs []*storage.ConfigRow
-			var err error
-
-			if aliveOnly {
-				configs, err = repo.ListAliveConfigs()
-			} else {
-				configs, err = repo.ListConfigs(common.Kind(proto))
-			}
-
-			if err != nil {
-				return err
-			}
-
-			if len(configs) == 0 {
-				fmt.Println("  No configs. Use `atabeh add` or `atabeh sync`.")
-				return nil
-			}
-
-			printTable(configs)
-			return nil
+			return listConfigs(repo, protocol, aliveOnly)
 		}),
 	}
 
-	cmd.Flags().StringVar(&proto, "protocol", "", "filter by protocol")
+	cmd.Flags().BoolVar(&profiles, "profiles", false, "list profiles instead of configs")
+	cmd.Flags().IntVar(&profileID, "profile", 0, "list configs in specific profile")
+	cmd.Flags().StringVar(&protocol, "protocol", "", "filter by protocol")
 	cmd.Flags().BoolVar(&aliveOnly, "alive", false, "show only alive configs")
-	cmd.Flags().IntVar(&profileID, "profile", 0, "show configs from specific profile")
-	cmd.Flags().BoolVar(&grouped, "grouped", false, "group configs by profile")
+
 	return cmd
 }
 
-func listGrouped(repo *repository.Repo) error {
+func listProfiles(repo *repository.Repo) error {
 	profiles, err := repo.ListProfiles()
 	if err != nil {
 		return err
 	}
 
 	if len(profiles) == 0 {
-		fmt.Println("  No profiles.")
+		fmt.Println("  No profiles. Use `atabeh add` to create one.")
 		return nil
 	}
 
@@ -84,30 +67,27 @@ func listGrouped(repo *repository.Repo) error {
 	yellow := color.New(color.FgYellow).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
 
-	for _, profile := range profiles {
-		fmt.Printf("\n  %s %s %s\n",
-			cyan("━━━━━ Profile:"),
-			yellow(profile.Name),
-			cyan("━━━━━"))
+	fmt.Printf("\n  %-4s  %-30s  %-12s  %-8s  %-8s\n",
+		"ID", "Name", "Type", "Configs", "Alive")
+	fmt.Println("  " + strings.Repeat("-", 70))
 
-		fmt.Printf("  Type: %s  |  Configs: %d  |  Alive: %s\n",
-			profile.Type, profile.ConfigCount, green(fmt.Sprintf("%d", profile.AliveCount)))
-
-		configs, err := repo.ListConfigsByProfile(profile.ID)
-		if err != nil {
-			fmt.Printf("  Error loading configs: %v\n", err)
-			continue
+	for _, p := range profiles {
+		name := trunc(p.Name, 30)
+		typeColor := cyan
+		if p.Type == "subscription" {
+			typeColor = yellow
 		}
 
-		if len(configs) == 0 {
-			fmt.Println("  (no configs)")
-			continue
+		aliveStr := fmt.Sprintf("%d", p.AliveCount)
+		if p.AliveCount > 0 {
+			aliveStr = green(aliveStr)
 		}
 
-		printTableCompact(configs)
+		fmt.Printf("  %-4d  %-30s  %-12s  %-8d  %-8s\n",
+			p.ID, name, typeColor(p.Type), p.ConfigCount, aliveStr)
 	}
 
-	fmt.Println()
+	fmt.Printf("\n  %d profile(s)\n\n", len(profiles))
 	return nil
 }
 
@@ -119,7 +99,7 @@ func listByProfile(repo *repository.Repo, profileID int) error {
 
 	fmt.Printf("\n  Profile: %s\n", profile.Name)
 	fmt.Printf("  Type:    %s\n", profile.Type)
-	fmt.Println()
+	fmt.Printf("  Source:  %s\n\n", trunc(profile.Source, 60))
 
 	configs, err := repo.ListConfigsByProfile(profileID)
 	if err != nil {
@@ -127,32 +107,33 @@ func listByProfile(repo *repository.Repo, profileID int) error {
 	}
 
 	if len(configs) == 0 {
-		fmt.Println("  No configs in this profile.")
+		fmt.Println("  No configs in this profile")
 		return nil
 	}
 
-	printTable(configs)
+	printConfigTable(configs)
 	return nil
 }
 
-func printTableCompact(configs []*storage.ConfigRow) {
+func listConfigs(repo *repository.Repo, protocol string, aliveOnly bool) error {
+	var configs []*storage.ConfigRow
+	var err error
+
+	if aliveOnly {
+		configs, err = repo.ListAliveConfigs()
+	} else {
+		configs, err = repo.ListConfigs(common.Kind(protocol))
+	}
+
+	if err != nil {
+		return err
+	}
+
 	if len(configs) == 0 {
-		return
+		fmt.Println("  No configs. Use `atabeh add` first.")
+		return nil
 	}
 
-	green := color.New(color.FgGreen).SprintFunc()
-	red := color.New(color.FgRed).SprintFunc()
-
-	for _, c := range configs {
-		status := red("✗")
-		latency := "dead"
-		if c.IsAlive {
-			status = green("✓")
-			latency = fmt.Sprintf("%d ms", c.LastPing)
-		}
-
-		fmt.Printf("  %s  %-20s  %-8s  %-25s  %s\n",
-			status, trunc(c.Name, 20), string(c.Protocol),
-			trunc(c.Server, 25), latency)
-	}
+	printConfigTable(configs)
+	return nil
 }

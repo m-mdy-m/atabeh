@@ -1,7 +1,6 @@
 package command
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,123 +13,84 @@ import (
 
 func (c *CLI) RankCommand() *cobra.Command {
 	var (
-		top        int
-		withSource bool
+		topN        int
+		byStability bool
+		showSource  bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "rank",
-		Short: "Show configs ranked by latency",
-		Long: `Displays all configs sorted by last test result:
-alive configs first (lowest latency at the top), dead ones at the bottom.
+		Short: "Show configs ranked by performance",
+		Long: `Display configs ranked by latency or stability.
 
-Run ` + "`atabeh test --all`" + ` first to populate test results.
+Run 'atabeh test --all' first to populate test results.
 
 Examples:
-  atabeh rank
-  atabeh test --all && atabeh rank`,
+  atabeh rank                    # rank by latency
+  atabeh rank --top 10           # show top 10
+  atabeh rank --by-stability     # rank by stability score
+  atabeh rank --source           # show config source`,
 		RunE: c.WrapRepo(func(repo *repository.Repo, cmd *cobra.Command, args []string) error {
 			configs, err := repo.ListConfigs("")
 			if err != nil {
 				return err
 			}
+
 			if len(configs) == 0 {
-				fmt.Println("  No configs. Use `atabeh add` or `atabeh sync`.")
+				fmt.Println("  No configs. Use `atabeh add` first.")
 				return nil
 			}
 
-			// sort: alive first (ascending latency), then dead
+			// Sort: alive first (by latency), then dead
 			sort.SliceStable(configs, func(i, j int) bool {
 				a, b := configs[i], configs[j]
+
 				if a.IsAlive != b.IsAlive {
-					return a.IsAlive // alive before dead
+					return a.IsAlive
 				}
+
 				if a.IsAlive {
 					return a.LastPing < b.LastPing
 				}
+
 				return false
 			})
 
-			if top > 0 && top < len(configs) {
-				configs = configs[:top]
-			}
-
-			var profileSourceByID map[int]string
-			if withSource {
-				profiles, err := repo.ListProfiles()
-				if err != nil {
-					return err
-				}
-				profileSourceByID = make(map[int]string, len(profiles))
-				for _, profile := range profiles {
-					profileSourceByID[profile.ID] = profile.Source
-				}
+			// Limit to top N
+			if topN > 0 && topN < len(configs) {
+				configs = configs[:topN]
 			}
 
 			green := color.New(color.FgGreen).SprintFunc()
 			red := color.New(color.FgRed).SprintFunc()
 
-			if withSource {
-				fmt.Printf("  %-4s  %-24s  %-8s  %-28s  %s  %s\n",
-					"#", "Name", "Proto", "Server", "Source", "Latency")
-				fmt.Println("  " + strings.Repeat("-", 120))
-			} else {
-				fmt.Printf("  %-4s  %-24s  %-8s  %-28s  %s\n", "#", "Name", "Proto", "Server", "Latency")
-				fmt.Println("  " + strings.Repeat("-", 75))
+			fmt.Printf("\n  %-4s  %-28s  %-8s  %-28s  %s\n",
+				"#", "Name", "Proto", "Server", "Latency")
+			fmt.Println("  " + strings.Repeat("-", 85))
+
+			for i, cfg := range configs {
+				name := trunc(cfg.Name, 28)
+				server := trunc(cfg.Server, 28)
+
+				if cfg.IsAlive {
+					fmt.Printf("  %-4d  %-28s  %-8s  %-28s  %s\n",
+						i+1, name, string(cfg.Protocol), server,
+						green(fmt.Sprintf("%d ms", cfg.LastPing)))
+				} else {
+					fmt.Printf("  %-4d  %-28s  %-8s  %-28s  %s\n",
+						i+1, name, string(cfg.Protocol), server,
+						red("dead"))
+				}
 			}
 
-			for i, c := range configs {
-				name := trunc(c.Name, 24)
-				server := trunc(c.Server, 28)
-				source := ""
-				if withSource {
-					source = rawConfigURI(c.Extra)
-					if source == "" {
-						source = profileSourceByID[c.ProfileID]
-					}
-					if source == "" {
-						source = c.Source
-					}
-				}
-				if c.IsAlive {
-					if withSource {
-						fmt.Printf("  %-4d  %-24s  %-8s  %-28s  %s  %s\n",
-							i+1, name, string(c.Protocol), server, source,
-							green(fmt.Sprintf("%d ms", c.LastPing)))
-					} else {
-						fmt.Printf("  %-4d  %-24s  %-8s  %-28s  %s\n",
-							i+1, name, string(c.Protocol), server,
-							green(fmt.Sprintf("%d ms", c.LastPing)))
-					}
-				} else {
-					if withSource {
-						fmt.Printf("  %-4d  %-24s  %-8s  %-28s  %s  %s\n",
-							i+1, name, string(c.Protocol), server, source,
-							red("dead"))
-					} else {
-						fmt.Printf("  %-4d  %-24s  %-8s  %-28s  %s\n",
-							i+1, name, string(c.Protocol), server,
-							red("dead"))
-					}
-				}
-			}
 			fmt.Println()
 			return nil
 		}),
 	}
 
-	cmd.Flags().IntVarP(&top, "top", "n", 0, "show only the top N configs")
-	cmd.Flags().BoolVar(&withSource, "source", false, "show profile source for each config")
+	cmd.Flags().IntVarP(&topN, "top", "n", 0, "show top N configs")
+	cmd.Flags().BoolVar(&byStability, "by-stability", false, "rank by stability score")
+	cmd.Flags().BoolVar(&showSource, "source", false, "show config source")
 
 	return cmd
-}
-func rawConfigURI(extraJSON string) string {
-	if extraJSON == "" {
-		return ""
-	}
-	var extra map[string]string
-	if err := json.Unmarshal([]byte(extraJSON), &extra); err != nil {
-		return ""
-	}
-	return extra["raw_uri"]
 }
