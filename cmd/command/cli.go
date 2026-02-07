@@ -33,14 +33,16 @@ Features:
   - Universal config ingestion (subscriptions, files, raw URIs)
   - Intelligent fake ping detection
   - Stability scoring over time
+  - VPN/Proxy connection with auto-selection
   - Export to multiple client formats
   - Profile-based organization
 
 Examples:
   atabeh add https://subscription.url
   atabeh test --all --tag-reasons
-  atabeh list --alive
-  atabeh export --profile 1 --format sing-box --best 5`,
+  atabeh connect --auto --real-time
+  atabeh status --watch
+  atabeh export --profile 1 --format xray`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -65,6 +67,9 @@ Examples:
 		cli.RemoveCommand(),
 		cli.ExportCommand(),
 		cli.RankCommand(),
+		cli.ConnectCommand(),
+		cli.DisconnectCommand(),
+		cli.StatusCommand(),
 		VersionCommand(),
 	)
 }
